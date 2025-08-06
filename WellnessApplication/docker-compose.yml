@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    container_name: wellness_application
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/wellnessapp
+    command: >
+      bash -c "python manage.py makemigrations &&
+               python manage.py migrate &&
+               python manage.py runserver 0.0.0.0:8000"

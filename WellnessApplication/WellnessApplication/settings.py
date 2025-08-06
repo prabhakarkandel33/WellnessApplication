@@ -25,7 +25,9 @@ SECRET_KEY = 'django-insecure-%1-(7cr!ji_0=3%o74cr%^&h=e^=hz#a$mo3+*efd%t$8d31!b
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+
+ALLOWED_HOSTS = ['10.0.2.2', 'localhost', '127.0.0.1']
+
 
 
 # Application definition
@@ -40,7 +42,10 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'api',
-    'drf_spectacular'
+    'drf_spectacular',
+
+    'workout',
+    'corsheaders',
 ]
 
 REST_FRAMEWORK = {
@@ -59,6 +64,7 @@ SPECTACULAR_SETTINGS = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -68,7 +74,6 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'WellnessApplication.urls'
-
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',

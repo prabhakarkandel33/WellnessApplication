@@ -1,0 +1,3 @@
+@echo off
+echo Starting Docker container...
+docker-compose up --build -d
