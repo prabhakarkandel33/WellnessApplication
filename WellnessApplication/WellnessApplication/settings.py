@@ -72,8 +72,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'WellnessApplication.urls'
-CORS_ALLOW_ALL_ORIGINS = True
-
+ALLOWED_HOSTS = ['10.0.2.2', 'localhost', '127.0.0.1']
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
