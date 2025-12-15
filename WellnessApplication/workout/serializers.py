@@ -151,21 +151,9 @@ class ActivityFeedbackItemSerializer(serializers.Serializer):
     """Individual activity feedback in batch"""
     activity_id = serializers.IntegerField(help_text="Activity ID")
     completed = serializers.BooleanField(help_text="Whether completed")
-    motivation_before = serializers.IntegerField(
-        min_value=1, max_value=5, required=False,
-        help_text="Motivation before (1-5)"
-    )
-    motivation_after = serializers.IntegerField(
-        min_value=1, max_value=5, required=False,
-        help_text="Motivation after (1-5)"
-    )
-    difficulty_rating = serializers.IntegerField(
-        min_value=1, max_value=5, required=False,
-        help_text="Difficulty (1-5)"
-    )
-    enjoyment_rating = serializers.IntegerField(
-        min_value=1, max_value=5, required=False,
-        help_text="Enjoyment (1-5)"
+    motivation = serializers.IntegerField(
+        min_value=1, max_value=5, required=True,
+        help_text="Motivation level after activity (1-5)"
     )
 
 
@@ -188,11 +176,7 @@ class ActivityFeedbackBatchRequestSerializer(serializers.Serializer):
 class SessionMetricsSerializer(serializers.Serializer):
     """Session-level metrics"""
     completion_rate = serializers.FloatField()
-    avg_motivation_before = serializers.FloatField()
-    avg_motivation_after = serializers.FloatField()
-    avg_motivation_delta = serializers.FloatField()
-    avg_difficulty = serializers.FloatField()
-    avg_enjoyment = serializers.FloatField()
+    avg_motivation = serializers.FloatField()
 
 
 class RLTrainingInfoSerializer(serializers.Serializer):
