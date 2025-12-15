@@ -954,30 +954,25 @@ class CompleteActivityView(APIView):
     @extend_schema(
         summary="Complete an Activity",
         description="""
-        Mark an activity as completed and provide detailed feedback.
+        Mark an activity as completed and provide motivation feedback.
         
         **What happens:**
         1. Activity is marked as completed with timestamp
-        2. Your motivation before/after is recorded
+        2. Your motivation level is recorded
         3. Engagement contribution is automatically calculated
         4. Your user engagement score is updated
         
-        **Feedback Fields:**
-        - `motivation_before` (1-5): How motivated you felt BEFORE starting
-        - `motivation_after` (1-5): How motivated you feel AFTER completing
-        - `difficulty_rating` (1-5): How challenging it was (1=easy, 5=hard)
-        - `enjoyment_rating` (1-5): How much you enjoyed it
-        - `notes`: Optional text feedback
+        **Required Fields:**
+        - `completed` (boolean): Whether you completed the activity
+        - `motivation` (1-5): Your motivation level after the activity
         
         **Calculated Metrics:**
-        - `motivation_delta`: Change in motivation (positive = motivating!)
-        - `is_motivating`: Boolean indicating if activity boosted motivation
-        - `engagement_contribution`: 0-1 score for RL training
+        - `engagement_contribution`: 0-1 score used for RL training
         
         **Tips:**
-        - Be honest with ratings - helps RL agent learn your preferences
-        - Positive motivation_delta signals the activity worked well
-        - High difficulty + low enjoyment → agent will adjust future activities
+        - Higher motivation (4-5) signals the activity worked well for you
+        - Lower motivation (1-2) tells the RL agent to adjust future recommendations
+        - Be consistent with your ratings for better personalization
         """,
         parameters=[
             OpenApiParameter(
@@ -995,26 +990,18 @@ class CompleteActivityView(APIView):
         },
         examples=[
             OpenApiExample(
-                'Positive Completion',
+                'High Motivation',
                 value={
                     "completed": True,
-                    "motivation_before": 3,
-                    "motivation_after": 5,
-                    "difficulty_rating": 3,
-                    "enjoyment_rating": 5,
-                    "notes": "Loved this! Perfect difficulty level"
+                    "motivation": 5
                 },
                 request_only=True
             ),
             OpenApiExample(
-                'Struggled to Complete',
+                'Low Motivation',
                 value={
                     "completed": True,
-                    "motivation_before": 4,
-                    "motivation_after": 2,
-                    "difficulty_rating": 5,
-                    "enjoyment_rating": 2,
-                    "notes": "Too hard, felt discouraged"
+                    "motivation": 2
                 },
                 request_only=True
             )
@@ -1029,11 +1016,7 @@ class CompleteActivityView(APIView):
             
             # Update activity with completion data
             activity.completed = request.data.get('completed', False)
-            activity.motivation_before = request.data.get('motivation_before', activity.motivation_before)
-            activity.motivation_after = request.data.get('motivation_after', activity.motivation_after)
-            activity.difficulty_rating = request.data.get('difficulty_rating', activity.difficulty_rating)
-            activity.enjoyment_rating = request.data.get('enjoyment_rating', activity.enjoyment_rating)
-            activity.notes = request.data.get('notes', activity.notes)
+            activity.motivation_after = request.data.get('motivation', 3)
             
             if activity.completed:
                 activity.completion_date = timezone.now()
@@ -1048,12 +1031,7 @@ class CompleteActivityView(APIView):
                 "activity_id": activity.id,
                 "activity_name": activity.activity_name,
                 "completed": activity.completed,
-                "motivation_before": activity.motivation_before,
-                "motivation_after": activity.motivation_after,
-                "motivation_delta": activity.motivation_delta,
-                "is_motivating": activity.is_motivating,
-                "difficulty_rating": activity.difficulty_rating,
-                "enjoyment_rating": activity.enjoyment_rating,
+                "motivation": activity.motivation_after,
                 "engagement_contribution": float(engagement),
                 "user_stats": {
                     "total_activities_completed": user.workouts_completed if hasattr(user, 'workouts_completed') else 0,

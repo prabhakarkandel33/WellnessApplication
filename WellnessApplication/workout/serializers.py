@@ -28,25 +28,9 @@ class ActivitySerializer(serializers.ModelSerializer):
 class ActivityCompletionRequestSerializer(serializers.Serializer):
     """Request body for completing an activity"""
     completed = serializers.BooleanField(default=True, help_text="Whether the activity was completed")
-    motivation_before = serializers.IntegerField(
-        min_value=1, max_value=5, required=False,
-        help_text="How motivated you were BEFORE the activity (1-5)"
-    )
-    motivation_after = serializers.IntegerField(
-        min_value=1, max_value=5, required=False,
-        help_text="How motivated you are AFTER the activity (1-5)"
-    )
-    difficulty_rating = serializers.IntegerField(
-        min_value=1, max_value=5, required=False,
-        help_text="How difficult was the activity? (1=easy, 5=very hard)"
-    )
-    enjoyment_rating = serializers.IntegerField(
-        min_value=1, max_value=5, required=False,
-        help_text="How much did you enjoy the activity? (1-5)"
-    )
-    notes = serializers.CharField(
-        max_length=500, required=False, allow_blank=True,
-        help_text="Optional notes about the activity"
+    motivation = serializers.IntegerField(
+        min_value=1, max_value=5, required=True,
+        help_text="Your motivation level after completing the activity (1-5)"
     )
 
 
@@ -56,12 +40,7 @@ class ActivityCompletionResponseSerializer(serializers.Serializer):
     activity_id = serializers.IntegerField()
     activity_name = serializers.CharField()
     completed = serializers.BooleanField()
-    motivation_before = serializers.IntegerField()
-    motivation_after = serializers.IntegerField()
-    motivation_delta = serializers.FloatField()
-    is_motivating = serializers.BooleanField()
-    difficulty_rating = serializers.IntegerField()
-    enjoyment_rating = serializers.IntegerField()
+    motivation = serializers.IntegerField()
     engagement_contribution = serializers.FloatField()
     user_stats = serializers.DictField()
 
