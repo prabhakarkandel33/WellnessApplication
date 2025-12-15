@@ -69,3 +69,33 @@ class CustomUser(AbstractUser):
         null=True, blank=True,
         help_text="Segment label based on user profile and activity",
     )
+    
+    # RL Agent tracking fields
+    engagement_score = models.FloatField(
+        default=0.5,
+        validators=[MinValueValidator(0), MaxValueValidator(1)],
+        help_text="User engagement score (0-1) for RL agent",
+    )
+    motivation_score = models.PositiveIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        help_text="User motivation score (1-5) for RL agent",
+    )
+    workouts_completed = models.PositiveIntegerField(
+        default=0,
+        help_text="Total number of workouts completed",
+    )
+    meditation_sessions = models.PositiveIntegerField(
+        default=0,
+        help_text="Total number of meditation sessions completed",
+    )
+    last_action_recommended = models.PositiveIntegerField(
+        default=5,
+        help_text="Last RL action recommended (0-5)",
+        null=True, blank=True,
+    )
+    last_recommendation_date = models.DateTimeField(
+        auto_now=False,
+        null=True, blank=True,
+        help_text="When the last RL recommendation was made",
+    )
