@@ -1092,10 +1092,7 @@ class ActivityFeedbackBatchView(APIView):
         - `activities`: Array of activity feedback objects
           - `activity_id`: Activity ID
           - `completed`: true/false
-          - `motivation_before`: 1-5
-          - `motivation_after`: 1-5
-          - `difficulty_rating`: 1-5
-          - `enjoyment_rating`: 1-5
+          - `motivation`: 1-5 (motivation level after activity)
         - `overall_session_rating`: 1-5 (how was the overall session?)
         - `notes`: Optional session notes
         
@@ -1137,18 +1134,12 @@ class ActivityFeedbackBatchView(APIView):
                         {
                             "activity_id": 123,
                             "completed": True,
-                            "motivation_before": 3,
-                            "motivation_after": 5,
-                            "difficulty_rating": 3,
-                            "enjoyment_rating": 5
+                            "motivation": 5
                         },
                         {
                             "activity_id": 124,
                             "completed": True,
-                            "motivation_before": 4,
-                            "motivation_after": 5,
-                            "difficulty_rating": 2,
-                            "enjoyment_rating": 4
+                            "motivation": 5
                         }
                     ],
                     "overall_session_rating": 5,
@@ -1163,18 +1154,12 @@ class ActivityFeedbackBatchView(APIView):
                         {
                             "activity_id": 125,
                             "completed": True,
-                            "motivation_before": 3,
-                            "motivation_after": 2,
-                            "difficulty_rating": 5,
-                            "enjoyment_rating": 2
+                            "motivation": 2
                         },
                         {
                             "activity_id": 126,
                             "completed": False,
-                            "motivation_before": 2,
-                            "motivation_after": 1,
-                            "difficulty_rating": 5,
-                            "enjoyment_rating": 1
+                            "motivation": 1
                         }
                     ],
                     "overall_session_rating": 2,
@@ -1203,10 +1188,7 @@ class ActivityFeedbackBatchView(APIView):
                 activity = Activity.objects.get(id=activity_id, user=user)
                 
                 activity.completed = activity_data.get('completed', False)
-                activity.motivation_before = activity_data.get('motivation_before', activity.motivation_before)
-                activity.motivation_after = activity_data.get('motivation_after', activity.motivation_after)
-                activity.difficulty_rating = activity_data.get('difficulty_rating', activity.difficulty_rating)
-                activity.enjoyment_rating = activity_data.get('enjoyment_rating', activity.enjoyment_rating)
+                activity.motivation_after = activity_data.get('motivation', 3)
                 
                 if activity.completed:
                     activity.completion_date = timezone.now()
@@ -1275,11 +1257,7 @@ class ActivityFeedbackBatchView(APIView):
                 },
                 "metrics": {
                     "completion_rate": session.completion_rate,
-                    "avg_motivation_before": session.avg_motivation_before,
-                    "avg_motivation_after": session.avg_motivation_after,
-                    "avg_motivation_delta": session.avg_motivation_delta,
-                    "avg_difficulty": session.avg_difficulty_rating,
-                    "avg_enjoyment": session.avg_enjoyment_rating
+                    "avg_motivation": session.avg_motivation_after
                 },
                 "rl_training": {
                     "action_trained": int(last_action),
