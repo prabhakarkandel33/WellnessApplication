@@ -334,6 +334,45 @@ class RecommendProgram(APIView):
         adapted["rl_action"] = action_names.get(action_id, "Unknown")
         return adapted
 
+    def structure_exercises_for_frontend(self, exercises_list, total_duration_str):
+        """
+        Convert exercise list into structured format with timing for frontend rendering
+        """
+        structured_exercises = []
+        
+        # Parse duration string to get minutes (e.g., "30-40 minutes" -> 35)
+        duration_minutes = 30  # default
+        if total_duration_str:
+            import re
+            numbers = re.findall(r'\d+', total_duration_str)
+            if numbers:
+                # Take average if range, otherwise take first number
+                if len(numbers) >= 2:
+                    duration_minutes = (int(numbers[0]) + int(numbers[1])) // 2
+                else:
+                    duration_minutes = int(numbers[0])
+        
+        # Calculate time per exercise
+        num_exercises = len(exercises_list)
+        if num_exercises > 0:
+            time_per_exercise = duration_minutes / num_exercises
+            
+            for i, exercise in enumerate(exercises_list):
+                structured_exercises.append({
+                    "name": exercise,
+                    "order": i + 1,
+                    "timing_minutes": round(time_per_exercise, 1),
+                    "timing_seconds": round(time_per_exercise * 60, 0)
+                })
+        
+        return structured_exercises
+
+    def structure_activities_for_frontend(self, activities_list, total_duration_str):
+        """
+        Convert mental activities list into structured format with timing
+        """
+        return self.structure_exercises_for_frontend(activities_list, total_duration_str)
+
     @extend_schema(
         summary="Get Personalized Workout Program",
         description="""
@@ -414,12 +453,28 @@ class RecommendProgram(APIView):
         user.last_recommendation_date = timezone.now()
         user.save(update_fields=['last_action_recommended', 'last_recommendation_date'])
         
+        # Structure physical program exercises for frontend
+        physical_program = adapted_program.get("physical_program", {})
+        if physical_program and "exercises" in physical_program:
+            physical_program["structured_exercises"] = self.structure_exercises_for_frontend(
+                physical_program["exercises"],
+                physical_program.get("duration", "30 minutes")
+            )
+        
+        # Structure mental program activities for frontend
+        mental_program = adapted_program.get("mental_program", {})
+        if mental_program and "activities" in mental_program:
+            mental_program["structured_activities"] = self.structure_activities_for_frontend(
+                mental_program["activities"],
+                mental_program.get("duration", "15 minutes")
+            )
+        
         recommended_program = {
             "user_segment": user_segment,
             "recommendation_type": "rl_adapted_program",
             "rl_action": RecommendProgram.rl_agent.get_action_name(action_id),
-            "physical_program": adapted_program.get("physical_program", {}),
-            "mental_program": adapted_program.get("mental_program", {}),
+            "physical_program": physical_program,
+            "mental_program": mental_program,
             "reminders": adapted_program.get("reminders", []),
             "adaptation_reason": adapted_program.get("adaptation_reason", ""),
             "engagement_score": user.engagement_score,
@@ -842,14 +897,43 @@ class RecommendedActivitiesView(APIView):
                 )
                 adjusted_activities.append(adjusted)
             
+            # Structure the response for frontend rendering with exercises and timing
+            structured_workouts = []
+            for activity in adjusted_activities:
+                structured_workout = {
+                    "workout_name": activity.get("name", "Unnamed Activity"),
+                    "activity_type": activity.get("type", "exercise"),
+                    "duration_minutes": activity.get("duration", 0),
+                    "intensity": activity.get("intensity", "Moderate"),
+                    "description": activity.get("description", ""),
+                    "exercises": []
+                }
+                
+                # Parse instructions into individual exercises with timing
+                instructions = activity.get("instructions", [])
+                if instructions:
+                    # Calculate time per instruction (divide total time by number of steps)
+                    time_per_step = activity.get("duration", 0) / len(instructions) if len(instructions) > 0 else 1
+                    
+                    for i, instruction in enumerate(instructions):
+                        exercise = {
+                            "name": instruction,
+                            "order": i + 1,
+                            "timing_minutes": round(time_per_step, 1),
+                            "timing_seconds": round(time_per_step * 60, 0)
+                        }
+                        structured_workout["exercises"].append(exercise)
+                
+                structured_workouts.append(structured_workout)
+            
             return Response({
                 "status": "success",
                 "user_segment": segment,
                 "rl_action": action,
                 "rl_action_name": action_name,
                 "reason": self._get_action_reason(action),
-                "recommended_activities": adjusted_activities,
-                "total_activities": len(adjusted_activities),
+                "workouts": structured_workouts,
+                "total_workouts": len(structured_workouts),
                 "user_engagement": recent_completions.get('avg_engagement', 0.5),
                 "user_motivation": user.motivation_score if hasattr(user, 'motivation_score') else 3
             }, status=status.HTTP_200_OK)
