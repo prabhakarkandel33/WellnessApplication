@@ -1,0 +1,8 @@
+tunnel: sangam-tunnel
+credentials-file: /etc/cloudflared/1128574d-8095-4d02-8402-3f95dd33e546.json
+origincert: /etc/cloudflared/cert.pem
+
+ingress:
+  - hostname: app.sangam1313.com.np
+    service: http://web:8000
+  - service: http_status:404

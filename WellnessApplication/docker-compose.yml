@@ -1,12 +1,34 @@
+# Production Docker Compose for Django Wellness Application
+version: '3.8'
+
 services:
+  # Django Application
   web:
     build: .
     container_name: wellness_application
     ports:
       - "8000:8000"
     volumes:
+      # Mount project for live code updates
       - .:/wellnessapp
-    command: >
-      bash -c "python manage.py makemigrations --noinput &&
-               python manage.py migrate --noinput &&
-               python manage.py runserver 0.0.0.0:8000"
+    restart: unless-stopped
+    networks:
+      - wellness_network
+
+  # Cloudflare Tunnel
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflare_tunnel
+    command: tunnel --config /etc/cloudflared/config.yml run sangam-tunnel
+    volumes:
+      # Mount Cloudflare config and credentials
+      - ./cloudflared:/etc/cloudflared:ro
+    restart: unless-stopped
+    depends_on:
+      - web
+    networks:
+      - wellness_network
+
+networks:
+  wellness_network:
+    driver: bridge
