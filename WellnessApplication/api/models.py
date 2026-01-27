@@ -99,3 +99,56 @@ class CustomUser(AbstractUser):
         null=True, blank=True,
         help_text="When the last RL recommendation was made",
     )
+
+
+class UserStatistics(models.Model):
+    """
+    Model to track aggregated user statistics for performance and analytics.
+    Can be updated periodically or on activity completion.
+    """
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='statistics')
+    
+    # Activity Counts
+    total_activities_completed = models.PositiveIntegerField(default=0)
+    total_activities_assigned = models.PositiveIntegerField(default=0)
+    
+    # By Type
+    total_exercises = models.PositiveIntegerField(default=0)
+    total_meditations = models.PositiveIntegerField(default=0)
+    total_journaling = models.PositiveIntegerField(default=0)
+    
+    # Engagement Metrics
+    current_streak_days = models.PositiveIntegerField(default=0, help_text="Consecutive days with completed activities")
+    longest_streak_days = models.PositiveIntegerField(default=0)
+    last_activity_date = models.DateField(null=True, blank=True)
+    
+    # Performance Averages
+    avg_motivation_improvement = models.FloatField(default=0.0, help_text="Average motivation delta across activities")
+    avg_enjoyment_rating = models.FloatField(default=0.0)
+    avg_difficulty_rating = models.FloatField(default=0.0)
+    
+    # Time Metrics
+    total_minutes_exercised = models.PositiveIntegerField(default=0)
+    total_minutes_meditated = models.PositiveIntegerField(default=0)
+    
+    # Weekly Metrics (rolling 7 days)
+    activities_this_week = models.PositiveIntegerField(default=0)
+    minutes_this_week = models.PositiveIntegerField(default=0)
+    
+    # Monthly Metrics (rolling 30 days)
+    activities_this_month = models.PositiveIntegerField(default=0)
+    minutes_this_month = models.PositiveIntegerField(default=0)
+    
+    # Completion Rate
+    overall_completion_rate = models.FloatField(default=0.0, help_text="Percentage of assigned activities completed")
+    
+    # Timestamps
+    last_updated = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = 'User Statistics'
+        verbose_name_plural = 'User Statistics'
+    
+    def __str__(self):
+        return f"Statistics for {self.user.username}"

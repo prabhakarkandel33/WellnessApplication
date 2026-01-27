@@ -101,3 +101,67 @@ class RegisterSerializer(serializers.ModelSerializer):
         # --- Create user ---
         user = User.objects.create_user(**validated_data)
         return user
+
+class UserStatisticsSerializer(serializers.Serializer):
+    """
+    Comprehensive statistics response for frontend visualization.
+    All data structured for easy graphing and display.
+    """
+    # Filter info
+    period = serializers.CharField()
+    start_date = serializers.DateTimeField()
+    end_date = serializers.DateTimeField()
+    
+    # Overview metrics
+    overview = serializers.DictField(child=serializers.JSONField())
+    
+    # Activity breakdown by type
+    activity_breakdown = serializers.DictField(child=serializers.IntegerField())
+    
+    # Time series data for graphs
+    daily_activity_count = serializers.ListField(child=serializers.DictField())
+    daily_duration = serializers.ListField(child=serializers.DictField())
+    
+    # Motivation trends
+    motivation_trends = serializers.DictField(child=serializers.JSONField())
+    
+    # Engagement metrics
+    engagement = serializers.DictField(child=serializers.JSONField())
+    
+    # Performance ratings
+    ratings = serializers.DictField(child=serializers.JSONField())
+    
+    # Goal progress
+    goal_progress = serializers.DictField(child=serializers.JSONField())
+    
+    # Recent activities summary
+    recent_activities = serializers.ListField(child=serializers.DictField())
+
+
+class StatisticsFilterSerializer(serializers.Serializer):
+    """
+    Request serializer for filtering statistics.
+    """
+    PERIOD_CHOICES = [
+        ('7days', 'Last 7 Days'),
+        ('30days', 'Last 30 Days'),
+        ('90days', 'Last 90 Days'),
+        ('all', 'All Time'),
+        ('custom', 'Custom Range'),
+    ]
+    
+    period = serializers.ChoiceField(choices=PERIOD_CHOICES, default='30days')
+    start_date = serializers.DateTimeField(required=False, allow_null=True)
+    end_date = serializers.DateTimeField(required=False, allow_null=True)
+    
+    def validate(self, data):
+        if data['period'] == 'custom':
+            if not data.get('start_date') or not data.get('end_date'):
+                raise serializers.ValidationError(
+                    "start_date and end_date are required for custom period"
+                )
+            if data['start_date'] >= data['end_date']:
+                raise serializers.ValidationError(
+                    "start_date must be before end_date"
+                )
+        return data
