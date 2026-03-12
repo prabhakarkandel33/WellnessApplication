@@ -10,3 +10,14 @@ services:
       bash -c "python manage.py makemigrations --noinput &&
                python manage.py migrate --noinput &&
                python manage.py runserver 0.0.0.0:8000"
+  chatbot:
+    build: ./RAG-WellnessApp
+    container_name: wellness_chatbot
+    ports:
+      - "7999:7999"
+    volumes:
+      - ./RAG-WellnessApp/knowledge_base:/app/knowledge_base
+      - ./RAG-WellnessApp/vectorstore:/app/vectorstore
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

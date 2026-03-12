@@ -218,3 +218,7 @@ class WorkoutSession(models.Model):
             contribution += 0.2
         
         return min(1.0, contribution)  # Cap at 1.0
+    
+
+
+
