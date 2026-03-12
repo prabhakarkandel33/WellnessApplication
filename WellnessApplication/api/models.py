@@ -15,51 +15,109 @@ GOAL_CHOICES = [
 
 
 SEGMENT_CHOICES = [
-    (0, 'High Anxiety, Low Activity'),
-    (1, 'Moderate Anxiety, Moderate Activity'),
-    (2, 'Low Anxiety, High Activity'),
-    (3, 'Physical Risk'),
-    (4, 'Wellness Seeker'),
-    (5, 'Inactive'),
-
+    (0, 'Older High Stress Exhausted'),
+    (1, 'Young High Stress Active Social'),
+    (2, 'Mid Life Low Stress Depressed'),
+    (3, 'Mid Life Thriving Wellness Seeker'),
+    (4, 'Working Professional Sedentary Stable'),
 ]
 
 
 class CustomUser(AbstractUser):
+    # Basic User Fields
     email = models.EmailField(unique=True)
     age = models.PositiveIntegerField(null=True, blank=True)
-    gender = models.CharField(max_length=10, choices=[('male', "Male"), ("female", "Female")], null=True, blank=True)
-    height = models.FloatField(help_text="In centimeters", null=True, blank=True)
-    weight = models.FloatField(help_text="In kgs", null=True, blank=True)
-    self_reported_stress = models.PositiveIntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(10)],
-        help_text="Stress level from 1-10",
+    gender = models.CharField(
+        max_length=10,
+        choices=[('male', "Male"), ("female", "Female"), ('other', 'Other')],
         null=True, blank=True
     )
-    gad7_score = models.PositiveIntegerField(
-        validators=[MinValueValidator(0), MaxValueValidator(21)],
-        help_text="GAD-7 score from 0-21",
+    
+    # Dietary Information
+    diet_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('vegetarian', 'Vegetarian'),
+            ('vegan', 'Vegan'),
+            ('balanced', 'Balanced'),
+            ('junk_food', 'Junk Food'),
+            ('keto', 'Keto')
+        ],
+        null=True, blank=True,
+        help_text="User's dietary preference"
+    )
+    
+    # Mental Health and Wellness
+    stress_level = models.CharField(
+        max_length=10,
+        choices=[
+            ('low', 'Low'),
+            ('moderate', 'Moderate'),
+            ('high', 'High')
+        ],
+        null=True, blank=True,
+        help_text="Self-reported stress level"
+    )
+    mental_health_condition = models.CharField(
+        max_length=15,
+        choices=[
+            ('none', 'None'),
+            ('ptsd', 'PTSD'),
+            ('depression', 'Depression'),
+            ('anxiety', 'Anxiety'),
+            ('bipolar', 'Bipolar')
+        ],
+        null=True, blank=True,
+        help_text="Mental health condition"
+    )
+    
+    # Lifestyle Metrics
+    exercise_level = models.CharField(
+        max_length=10,
+        choices=[
+            ('low', 'Low'),
+            ('moderate', 'Moderate'),
+            ('high', 'High')
+        ],
+        null=True, blank=True,
+        help_text="Exercise level"
+    )
+    sleep_hours = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(9)],
+        help_text="Average sleep hours per night (0-9)",
         null=True, blank=True
     )
-    physical_activity_week = models.PositiveIntegerField(
-        validators=[MinValueValidator(0)],
-        help_text="Physical activity level from 0-7 (days a week)",
-        
+    work_hours_per_week = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Work hours per week (0-100)",
         null=True, blank=True
     )
-    importance_stress_reduction = models.PositiveIntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(5)],
-        help_text="Importance of stress reduction from 1-5",
-        
+    screen_time_per_day = models.FloatField(
+        validators=[MinValueValidator(0), MaxValueValidator(24)],
+        help_text="Screen time per day in hours (0-24)",
         null=True, blank=True
     )
+    
+    # Self-Reported Scores
+    self_reported_social_interaction_score = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(10)],
+        help_text="Social interaction score (0-10)",
+        null=True, blank=True
+    )
+    happiness_score = models.PositiveIntegerField(
+        validators=[MinValueValidator(0), MaxValueValidator(10)],
+        help_text="Self-reported happiness score (0-10)",
+        null=True, blank=True
+    )
+    
+    # Goals
     primary_goal = models.PositiveSmallIntegerField(
         choices=GOAL_CHOICES,
         help_text="Primary goal for using the app",
         null=True, blank=True   
     )
     workout_goal_days = models.PositiveIntegerField(
-        validators=[MinValueValidator(0)],
+        validators=[MinValueValidator(0), MaxValueValidator(7)],
         help_text="Number of days per week you want to work out",
         null=True, blank=True
     )

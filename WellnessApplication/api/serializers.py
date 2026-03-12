@@ -16,11 +16,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'email', 'username', 'password', 'password2',
-            'age', 'gender', 'height', 'weight',
-            'self_reported_stress', 'gad7_score',
-            'physical_activity_week', 'importance_stress_reduction',
-            'primary_goal', 'workout_goal_days',
-            'segment_label'
+            'age', 'gender', 'diet_type', 'stress_level',
+            'mental_health_condition', 'exercise_level', 'sleep_hours', 
+            'work_hours_per_week', 'screen_time_per_day', 
+            'self_reported_social_interaction_score', 'happiness_score', 
+            'primary_goal', 'workout_goal_days', 'segment_label'
         ]
         extra_kwargs = {
             'segment_label': {'read_only': True}
@@ -36,24 +36,29 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Age must be between 1 and 100.")
         return value
 
-    def validate_self_reported_stress(self, value):
-        if not 1 <= value <= 10:
-            raise serializers.ValidationError("Stress level must be between 1 and 10.")
+    def validate_sleep_hours(self, value):
+        if not 0 <= value <= 9:
+            raise serializers.ValidationError("Sleep hours must be between 0 and 9.")
         return value
 
-    def validate_gad7_score(self, value):
-        if not 0 <= value <= 21:
-            raise serializers.ValidationError("GAD-7 score must be between 0 and 21.")
+    def validate_work_hours_per_week(self, value):
+        if not 0 <= value <= 100:
+            raise serializers.ValidationError("Work hours per week must be between 0 and 100.")
         return value
 
-    def validate_physical_activity_week(self, value):
-        if not 0 <= value <= 7:
-            raise serializers.ValidationError("Physical activity must be between 0 and 7 days/week.")
+    def validate_screen_time_per_day(self, value):
+        if not 0 <= value <= 24:
+            raise serializers.ValidationError("Screen time must be between 0 and 24 hours.")
         return value
 
-    def validate_importance_stress_reduction(self, value):
-        if not 1 <= value <= 5:
-            raise serializers.ValidationError("Importance of stress reduction must be between 1 and 5.")
+    def validate_self_reported_social_interaction_score(self, value):
+        if not 0 <= value <= 10:
+            raise serializers.ValidationError("Social interaction score must be between 0 and 10.")
+        return value
+
+    def validate_happiness_score(self, value):
+        if not 0 <= value <= 10:
+            raise serializers.ValidationError("Happiness score must be between 0 and 10.")
         return value
 
     def validate_workout_goal_days(self, value):
@@ -64,38 +69,69 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('password2')
 
-        # --- Load model ---
-        model_path = os.path.join(settings.BASE_DIR, 'Datasets,Models', 'segment_classifier.pkl')
-        clf = joblib.load(model_path)
+        # --- Load Random Forest model ---
+        model_path = os.path.join(settings.BASE_DIR, 'Datasets,Models', 'final_RF.pkl')
+        rf_model = joblib.load(model_path)
 
-        # --- Calculate derived features ---
-        gender = validated_data.get('gender')
-        gender_encoded = 0 if gender == 'male' else 1
+        # --- Encode categorical features (must match training order) ---
+        # Feature order: Age, Gender, Exercise Level, Diet Type, Sleep Hours, 
+        # Stress Level, Mental Health Condition, Work Hours per Week, 
+        # Screen Time per Day (Hours), Social Interaction Score, Happiness Score
+        
+        gender = validated_data.get('gender', 'male')
+        gender_mapping = {'male': 0, 'female': 1, 'other': 2}
+        gender_encoded = gender_mapping.get(gender, 0)
+        
+        exercise_level = validated_data.get('exercise_level', 'moderate')
+        exercise_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        exercise_encoded = exercise_mapping.get(exercise_level, 1)
+        
+        diet_type = validated_data.get('diet_type', 'balanced')
+        diet_mapping = {'vegetarian': 0, 'vegan': 1, 'balanced': 2, 'junk_food': 3, 'keto': 4}
+        diet_encoded = diet_mapping.get(diet_type, 2)
+        
+        stress_level = validated_data.get('stress_level', 'moderate')
+        stress_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        stress_encoded = stress_mapping.get(stress_level, 1)
+        
+        mental_health = validated_data.get('mental_health_condition', 'none')
+        mental_mapping = {'none': 0, 'ptsd': 1, 'depression': 2, 'anxiety': 3, 'bipolar': 4}
+        mental_encoded = mental_mapping.get(mental_health, 0)
 
-        height_cm = validated_data.get('height', 0.0)
-        weight_kg = validated_data.get('weight', 0.0)
-
-        # Avoid division by zero
-        height_m = height_cm / 100 if height_cm else 1
-        bmi = weight_kg / (height_m ** 2)
-
-        # --- Prepare feature vector in trained order ---
+        # --- Prepare feature vector (11 features in exact training order) ---
         features = np.array([[
-            validated_data.get('age', 0),
+            validated_data.get('age', 25),
             gender_encoded,
-            height_cm,
-            weight_kg,
-            bmi,
-            validated_data.get('gad7_score', 0),
-            validated_data.get('self_reported_stress', 5),
-            validated_data.get('physical_activity_week', 0),
-            validated_data.get('primary_goal', 0),
-            validated_data.get('workout_goal_days', 0),
-            validated_data.get('importance_stress_reduction', 3)
+            exercise_encoded,
+            diet_encoded,
+            validated_data.get('sleep_hours', 7),
+            stress_encoded,
+            mental_encoded,
+            validated_data.get('work_hours_per_week', 40),
+            validated_data.get('screen_time_per_day', 6.0),
+            validated_data.get('self_reported_social_interaction_score', 5),
+            validated_data.get('happiness_score', 5)
         ]])
 
-        # --- Predict segment label ---
-        segment_label = int(clf.predict(features)[0])
+        # --- Predict segment label using Random Forest ---
+        segment_prediction = rf_model.predict(features)[0]
+        
+        # Map string label back to numeric cluster ID
+        label_to_id_mapping = {
+            'Older_HighStress_Exhausted': 0,
+            'Young_HighStress_ActiveSocial': 1,
+            'MidLife_LowStress_Depressed': 2,
+            'MidLife_Thriving_WellnessSeeker': 3,
+            'WorkingProfessional_Sedentary_Stable': 4
+        }
+        
+        # If prediction is already numeric (shouldn't be), use it directly
+        # Otherwise map the string label to its numeric ID
+        if isinstance(segment_prediction, (int, np.integer)):
+            segment_label = int(segment_prediction)
+        else:
+            segment_label = label_to_id_mapping.get(segment_prediction, 4)  # Default to 4 if unknown
+        
         validated_data['segment_label'] = segment_label
 
         # --- Create user ---

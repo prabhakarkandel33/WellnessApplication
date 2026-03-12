@@ -1,0 +1,262 @@
+{
+  "evaluation_summary": {
+    "total_queries": 30,
+    "successful_queries": 30,
+    "failed_queries": 0,
+    "success_rate": 1.0
+  },
+  "retrieval_metrics": {
+    "avg_similarity_score": 0.6964343577071056,
+    "max_similarity_score": 1.381655526218352,
+    "min_similarity_score": 0.30254581858188695
+  },
+  "generation_metrics": {
+    "avg_latency_seconds": 3.988197334607442,
+    "min_latency_seconds": 2.6726906299591064,
+    "max_latency_seconds": 11.878190755844116,
+    "avg_response_length_chars": 444.8666666666667,
+    "avg_response_tokens": 110.83333333333333
+  },
+  "detailed_results": [
+    {
+      "question": "What helps with anxiety?",
+      "category": "mental_health",
+      "similarity_score": 0.7870292844479032,
+      "latency": 11.878190755844116,
+      "response_length": 401,
+      "response": "There are several things that help with anxiety:\n\n1. Physical activities such as walking, stretching, and practicing yoga or light movement.\n2. Breathing techniques, including slow and controlled brea..."
+    },
+    {
+      "question": "How do I improve sleep quality?",
+      "category": "sleep",
+      "similarity_score": 0.6897176084613567,
+      "latency": 4.9598705768585205,
+      "response_length": 926,
+      "response": "To improve sleep quality, follow the steps outlined in the \"INSOMNIA SOLUTIONS\" section:\n\n1. Maintain a consistent sleep schedule.\n2. Practice relaxation techniques like deep breathing or meditation.\n..."
+    },
+    {
+      "question": "What are good breathing exercises?",
+      "category": "exercise",
+      "similarity_score": 0.7895254214200793,
+      "latency": 3.6351985931396484,
+      "response_length": 419,
+      "response": "There are three good breathing exercises mentioned in the context:\n\n1. 4-7-8 Breathing: a technique to promote relaxation and sleep.\n2. Anxiety Breathing: breathing techniques used to calm the nervous..."
+    },
+    {
+      "question": "How to manage stress?",
+      "category": "mental_health",
+      "similarity_score": 0.6242439564851058,
+      "latency": 5.489879608154297,
+      "response_length": 1055,
+      "response": "To manage stress, it's essential to adopt a multi-faceted approach that incorporates various strategies. Here are some effective ways to reduce and cope with stress:\n\n1. **Practice relaxation techniqu..."
+    },
+    {
+      "question": "What causes insomnia?",
+      "category": "sleep",
+      "similarity_score": 0.30254581858188695,
+      "latency": 3.4476876258850098,
+      "response_length": 296,
+      "response": "Insomnia is caused by a combination of factors, including:\n\n1. Stress, anxiety, or depression.\n2. Poor sleep environment or habits.\n3. Consuming caffeine, nicotine, or alcohol in the evening.\n4. Medic..."
+    },
+    {
+      "question": "Best exercises for beginners?",
+      "category": "exercise",
+      "similarity_score": 0.9655559443452393,
+      "latency": 4.242983341217041,
+      "response_length": 703,
+      "response": "For beginners, the best exercises are those that are gentle, low-impact, and easy to follow. Based on the context, I would recommend the following exercises:\n\n1. Yoga: Gentle yoga practices focused on..."
+    },
+    {
+      "question": "How to deal with depression?",
+      "category": "mental_health",
+      "similarity_score": 0.7581030809295216,
+      "latency": 3.9136407375335693,
+      "response_length": 589,
+      "response": "To deal with depression, it's essential to maintain a daily routine, stay socially connected, and engage in simple enjoyable activities. This can include going for short walks, listening to music, doi..."
+    },
+    {
+      "question": "What is sleep hygiene?",
+      "category": "sleep",
+      "similarity_score": 0.537084321659243,
+      "latency": 2.6779143810272217,
+      "response_length": 87,
+      "response": "Sleep hygiene is a set of habits and practices that improve sleep quality and duration."
+    },
+    {
+      "question": "Benefits of walking?",
+      "category": "exercise",
+      "similarity_score": 0.34342445495968965,
+      "latency": 3.5302460193634033,
+      "response_length": 369,
+      "response": "The benefits of walking include:\n\n1. Improves cardiovascular health.\n2. Boosts mood and energy.\n3. Supports weight management.\n4. Improves joint mobility.\n\nAdditionally, walking can also:\n\n1. Provide ..."
+    },
+    {
+      "question": "How to reduce worry?",
+      "category": "mental_health",
+      "similarity_score": 0.9711332693427147,
+      "latency": 3.1200664043426514,
+      "response_length": 242,
+      "response": "To reduce worry, you can try practicing relaxation techniques before bed, keeping a consistent sleep schedule, avoiding clock-watching in bed, journaling your thoughts earlier in the evening to reduce..."
+    },
+    {
+      "question": "Tips for better sleep?",
+      "category": "sleep",
+      "similarity_score": 0.6555983151813641,
+      "latency": 5.357494831085205,
+      "response_length": 1151,
+      "response": "Here are some additional tips for better sleep:\n\n1. Establish a bedtime routine: Develop a calming pre-sleep routine, such as reading a book, taking a warm bath, or practicing gentle stretches, to sig..."
+    },
+    {
+      "question": "What is box breathing?",
+      "category": "exercise",
+      "similarity_score": 0.3677030703214588,
+      "latency": 3.5717170238494873,
+      "response_length": 345,
+      "response": "Box breathing is a breathing technique to calm the nervous system using equal breathing intervals. It involves:\n\n1. Inhaling for 4 seconds.\n2. Holding breath for 4 seconds.\n3. Exhaling for 4 seconds.\n..."
+    },
+    {
+      "question": "How to handle panic attacks?",
+      "category": "mental_health",
+      "similarity_score": 0.6843282300779927,
+      "latency": 5.054258108139038,
+      "response_length": 912,
+      "response": "To handle panic attacks, follow these steps:\n\n1. **Focus on slow breathing**: Take slow, deep breaths in through your nose and out through your mouth. This can help calm your nervous system and reduce..."
+    },
+    {
+      "question": "Why is sleep important?",
+      "category": "sleep",
+      "similarity_score": 0.6252928931110135,
+      "latency": 2.812263250350952,
+      "response_length": 176,
+      "response": "Sleep is important because it allows your body and mind to rest and recharge, leading to better sleep quality, increased energy and focus, and improved mood and overall health."
+    },
+    {
+      "question": "How to start yoga?",
+      "category": "exercise",
+      "similarity_score": 0.5446687812465346,
+      "latency": 3.528054714202881,
+      "response_length": 318,
+      "response": "To start yoga, follow these steps:\n\n1. Start with simple poses.\n2. Focus on breathing.\n3. Practice 10\u201320 minutes daily.\n4. Use a mat for comfort.\n\nRemember, the key is to begin gently and build up you..."
+    },
+    {
+      "question": "What helps with sadness?",
+      "category": "mental_health",
+      "similarity_score": 1.0683524595319982,
+      "latency": 2.773780584335327,
+      "response_length": 130,
+      "response": "Going for short walks, listening to music, doing small household tasks, and practicing gratitude journaling can help with sadness."
+    },
+    {
+      "question": "How much sleep do I need?",
+      "category": "sleep",
+      "similarity_score": 0.8999588402662229,
+      "latency": 3.1206393241882324,
+      "response_length": 249,
+      "response": "According to the context, the amount of sleep you need is not explicitly stated. However, it does mention that staying in bed awake for long periods is not recommended, and that insomnia lasting more ..."
+    },
+    {
+      "question": "What is meditation?",
+      "category": "exercise",
+      "similarity_score": 0.9248478117170567,
+      "latency": 2.8227896690368652,
+      "response_length": 98,
+      "response": "Meditation is a technique that helps calm the mind, reduce stress, and prepare the body for sleep."
+    },
+    {
+      "question": "How to cope with loneliness?",
+      "category": "mental_health",
+      "similarity_score": 1.381655526218352,
+      "latency": 2.9937942028045654,
+      "response_length": 194,
+      "response": "To cope with loneliness, it's essential to stay socially connected. This can be achieved by reaching out to friends and family, joining a social group or club, or volunteering in your community."
+    },
+    {
+      "question": "What affects sleep quality?",
+      "category": "sleep",
+      "similarity_score": 0.5760191397308195,
+      "latency": 2.829381227493286,
+      "response_length": 174,
+      "response": "Lifestyle habits, such as sleep schedule, caffeine consumption, and physical activity, as well as environmental factors like noise and light levels, can affect sleep quality."
+    },
+    {
+      "question": "Benefits of stretching?",
+      "category": "exercise",
+      "similarity_score": 0.8305853837498595,
+      "latency": 2.819502592086792,
+      "response_length": 96,
+      "response": "The benefits of evening stretching include:\n\n- Reduces muscle tension.\n- Improves sleep quality."
+    },
+    {
+      "question": "What is mindfulness?",
+      "category": "mental_health",
+      "similarity_score": 0.5541014108551061,
+      "latency": 2.6794285774230957,
+      "response_length": 71,
+      "response": "Mindfulness is paying attention to the present moment without judgment."
+    },
+    {
+      "question": "How to fix sleep schedule?",
+      "category": "sleep",
+      "similarity_score": 0.4114814789973353,
+      "latency": 3.815054178237915,
+      "response_length": 473,
+      "response": "To fix your sleep schedule, follow these steps:\n\n1. Set a consistent bedtime and wake-up time, even on weekends.\n2. Gradually adjust your sleep time by 15\u201330 minutes if needed.\n3. Get morning sunlight..."
+    },
+    {
+      "question": "What is progressive muscle relaxation?",
+      "category": "exercise",
+      "similarity_score": 0.3769225957440595,
+      "latency": 2.6726906299591064,
+      "response_length": 101,
+      "response": "Progressive muscle relaxation is a technique that reduces tension by tightening and relaxing muscles."
+    },
+    {
+      "question": "How to manage work stress?",
+      "category": "mental_health",
+      "similarity_score": 0.8162423115968391,
+      "latency": 6.9259326457977295,
+      "response_length": 1607,
+      "response": "To manage work stress, follow these steps:\n\n1. **Identify stressors**: Take time to reflect on what's causing you stress at work. Is it a specific task, colleague, or workload? Once you know what's ca..."
+    },
+    {
+      "question": "What helps with hangovers?",
+      "category": "wellness",
+      "similarity_score": 0.7226237562241384,
+      "latency": 4.662421464920044,
+      "response_length": 645,
+      "response": "Several things help with hangovers, including:\n\n1. Drinking water - lots of it.\n2. Eating bland foods - toast, crackers, bananas.\n3. Rest - sleep helps recovery.\n4. Pain relief - ibuprofen for headach..."
+    },
+    {
+      "question": "How to maintain skincare routine?",
+      "category": "wellness",
+      "similarity_score": 0.5821205670868533,
+      "latency": 5.391507387161255,
+      "response_length": 990,
+      "response": "To maintain your skincare routine, follow these tips:\n\n1. Stick to your daily routine consistently, even on weekends and days off.\n2. Be gentle with your skin and avoid overwashing or scrubbing too ha..."
+    },
+    {
+      "question": "What causes headaches?",
+      "category": "wellness",
+      "similarity_score": 0.5476455971575944,
+      "latency": 2.8647592067718506,
+      "response_length": 152,
+      "response": "Headaches are caused by muscle tension, stress, or anxiety, as well as other factors such as dehydration, certain medications, or even hormonal changes."
+    },
+    {
+      "question": "How to stay hydrated?",
+      "category": "wellness",
+      "similarity_score": 0.6606646584647106,
+      "latency": 3.2349700927734375,
+      "response_length": 253,
+      "response": "To stay hydrated, follow these steps:\n\n1. Drink water regularly throughout the day.\n2. Eat water-rich foods like fruits and vegetables.\n3. Replace lost fluids after exercise or heat exposure.\n4. Limit..."
+    },
+    {
+      "question": "Benefits of good posture?",
+      "category": "wellness",
+      "similarity_score": 0.8938547433011241,
+      "latency": 2.8198022842407227,
+      "response_length": 124,
+      "response": "The benefits of good posture include:\n\n- Smooth transition.\n- Maintains healthy habits.\n- Reduces risk of burnout or injury."
+    }
+  ]
+}
