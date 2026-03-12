@@ -44,7 +44,7 @@ class RecommendProgram(APIView):
         
         # Baseline program recommendations from Table 4.1 in the report
         self.program_recommendations = {
-            "High Anxiety, Low Activity": {
+            "Older High Stress Exhausted": {
                 "physical_program": {
                     "name": "Light Yoga & Stretching Program",
                     "description": "Gentle movements to build activity habits",
@@ -77,7 +77,7 @@ class RecommendProgram(APIView):
                 ]
             },
             
-            "Moderate Anxiety, Moderate Activity": {
+            "Working Professional Sedentary Stable": {
                 "physical_program": {
                     "name": "Walk + Bodyweight Training",
                     "description": "Balanced approach combining cardio and strength",
@@ -110,7 +110,7 @@ class RecommendProgram(APIView):
                 ]
             },
             
-            "Low Anxiety, High Activity": {
+            "Young High Stress Active Social": {
                 "physical_program": {
                     "name": "Personalized Strength & Cardio Training",
                     "description": "Advanced training for active individuals",
@@ -143,7 +143,7 @@ class RecommendProgram(APIView):
                 ]
             },
             
-            "Physical Health Risk": {
+            "Mid Life Low Stress Depressed": {
                 "physical_program": {
                     "name": "Beginner Bodyweight & Cardio",
                     "description": "Health-focused gradual fitness improvement",
@@ -176,7 +176,7 @@ class RecommendProgram(APIView):
                 ]
             },
             
-            "Wellness Seekers": {
+            "Mid Life Thriving Wellness Seeker": {
                 "physical_program": {
                     "name": "Balanced Yoga + Cardio + Strength",
                     "description": "Holistic approach to physical wellness",
@@ -207,39 +207,6 @@ class RecommendProgram(APIView):
                     "Evening meditation reminder",
                     "Weekly wellness check-in"
                 ]
-            },
-            
-            "Inactive, Unengaged": {
-                "physical_program": {
-                    "name": "5-10 Minute Activity Streaks",
-                    "description": "Micro-workouts to build exercise habits",
-                    "exercises": [
-                        "Fun 5-minute walks",
-                        "Simple bodyweight movements",
-                        "Dance or movement games"
-                    ],
-                    "duration": "5-10 minutes",
-                    "frequency": "Daily micro-sessions",
-                    "intensity": "Very low",
-                    "progression": "Focus on consistency before increasing duration"
-                },
-                "mental_program": {
-                    "name": "Motivation Boosters & Micro-habits",
-                    "description": "Building engagement through small wins",
-                    "activities": [
-                        "Daily motivational reminders",
-                        "Micro-habit challenges",
-                        "Achievement celebrations"
-                    ],
-                    "duration": "2-5 minutes",
-                    "frequency": "Multiple daily touchpoints",
-                    "focus": "Engagement and motivation building"
-                },
-                "reminders": [
-                    "Gentle activity nudges",
-                    "Celebration of small wins",
-                    "Motivational check-ins"
-                ]
             }
         }
 
@@ -247,39 +214,49 @@ class RecommendProgram(APIView):
         """
         Extract user state dictionary from user object for RL agent
         """
-        segment_names = {
-            0: "High Anxiety, Low Activity",
-            1: "Moderate Anxiety, Moderate Activity",
-            2: "Low Anxiety, High Activity",
-            3: "Physical Health Risk",
-            4: "Wellness Seekers",
-            5: "Inactive, Unengaged"
-        }
+        # Encode categorical fields
+        gender_mapping = {'male': 0, 'female': 1, 'other': 2}
+        gender_encoded = gender_mapping.get(user.gender, 0) if user.gender else 0
         
-        segment = segment_names.get(user.segment_label, "Wellness Seekers") if user.segment_label is not None else "Wellness Seekers"
+        diet_mapping = {'vegetarian': 0, 'vegan': 1, 'balanced': 2, 'junk_food': 3, 'keto': 4}
+        diet_encoded = diet_mapping.get(user.diet_type, 2) if user.diet_type else 2
+        
+        exercise_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        exercise_encoded = exercise_mapping.get(user.exercise_level, 1) if user.exercise_level else 1
+        
+        stress_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        stress_encoded = stress_mapping.get(user.stress_level, 1) if user.stress_level else 1
+        
+        mental_mapping = {'none': 0, 'ptsd': 1, 'depression': 2, 'anxiety': 3, 'bipolar': 4}
+        mental_encoded = mental_mapping.get(user.mental_health_condition, 0) if user.mental_health_condition else 0
         
         return {
             'age': user.age or 30,
-            'gender': 0 if user.gender == 'male' else 1 if user.gender == 'female' else 0,
-            'bmi': (user.weight / ((user.height / 100) ** 2)) if user.weight and user.height else 25,
-            'anxiety_score': user.gad7_score or 10,
-            'activity_week': user.physical_activity_week or 3,
+            'gender': gender_encoded,
+            'diet_type': diet_encoded,
+            'exercise_level': exercise_encoded,
+            'stress_level': stress_encoded,
+            'mental_health_condition': mental_encoded,
+            'sleep_hours': user.sleep_hours or 7,
+            'work_hours_per_week': user.work_hours_per_week or 40,
+            'screen_time_per_day': user.screen_time_per_day or 6.0,
+            'social_interaction_score': user.self_reported_social_interaction_score or 5,
+            'happiness_score': user.happiness_score or 5,
             'engagement': user.engagement_score,
             'motivation': user.motivation_score,
-            'segment': segment
+            'segment': user.segment_label if user.segment_label is not None else 4
         }
 
     def get_segment_name(self, user):
         """Get user segment as string"""
         segment_names = {
-            0: "High Anxiety, Low Activity",
-            1: "Moderate Anxiety, Moderate Activity",
-            2: "Low Anxiety, High Activity",
-            3: "Physical Health Risk",
-            4: "Wellness Seekers",
-            5: "Inactive, Unengaged"
+            0: "Older High Stress Exhausted",
+            1: "Young High Stress Active Social",
+            2: "Mid Life Low Stress Depressed",
+            3: "Mid Life Thriving Wellness Seeker",
+            4: "Working Professional Sedentary Stable"
         }
-        segment = segment_names.get(user.segment_label, "Wellness Seekers") if user.segment_label is not None else "Wellness Seekers"
+        segment = segment_names.get(user.segment_label, "Working Professional Sedentary Stable") if user.segment_label is not None else "Working Professional Sedentary Stable"
         return segment
 
     def adapt_program_with_rl_action(self, base_program, action_id):
@@ -442,8 +419,8 @@ class RecommendProgram(APIView):
         if user_segment in self.program_recommendations:
             program_data = self.program_recommendations[user_segment]
         else:
-            program_data = self.program_recommendations["Wellness Seekers"]
-            user_segment = "Wellness Seekers"
+            program_data = self.program_recommendations["Mid Life Thriving Wellness Seeker"]
+            user_segment = "Mid Life Thriving Wellness Seeker"
         
         # Adapt program based on RL action
         adapted_program = self.adapt_program_with_rl_action(program_data, action_id)
@@ -530,26 +507,54 @@ class RecommendProgram(APIView):
         user.save()
         
         # Get user state for RL
+        # Encode categorical fields
+        gender_mapping = {'male': 0, 'female': 1, 'other': 2}
+        gender_encoded = gender_mapping.get(user.gender, 0) if user.gender else 0
+        
+        diet_mapping = {'vegetarian': 0, 'vegan': 1, 'balanced': 2, 'junk_food': 3, 'keto': 4}
+        diet_encoded = diet_mapping.get(user.diet_type, 2) if user.diet_type else 2
+        
+        exercise_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        exercise_encoded = exercise_mapping.get(user.exercise_level, 1) if user.exercise_level else 1
+        
+        stress_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        stress_encoded = stress_mapping.get(user.stress_level, 1) if user.stress_level else 1
+        
+        mental_mapping = {'none': 0, 'ptsd': 1, 'depression': 2, 'anxiety': 3, 'bipolar': 4}
+        mental_encoded = mental_mapping.get(user.mental_health_condition, 0) if user.mental_health_condition else 0
+        
         user_state_before = {
             'age': user.age or 30,
-            'gender': 0 if user.gender == 'male' else 1,
-            'bmi': (user.weight / ((user.height / 100) ** 2)) if user.weight and user.height else 25,
-            'anxiety_score': user.gad7_score or 10,
-            'activity_week': user.physical_activity_week or 3,
+            'gender': gender_encoded,
+            'diet_type': diet_encoded,
+            'exercise_level': exercise_encoded,
+            'stress_level': stress_encoded,
+            'mental_health_condition': mental_encoded,
+            'sleep_hours': user.sleep_hours or 7,
+            'work_hours_per_week': user.work_hours_per_week or 40,
+            'screen_time_per_day': user.screen_time_per_day or 6.0,
+            'social_interaction_score': user.self_reported_social_interaction_score or 5,
+            'happiness_score': user.happiness_score or 5,
             'engagement': old_engagement,
             'motivation': feedback_rating,
-            'segment': self.get_segment_name(user)
+            'segment': user.segment_label if user.segment_label is not None else 4
         }
         
         user_state_after = {
             'age': user.age or 30,
-            'gender': 0 if user.gender == 'male' else 1,
-            'bmi': (user.weight / ((user.height / 100) ** 2)) if user.weight and user.height else 25,
-            'anxiety_score': user.gad7_score or 10,
-            'activity_week': user.physical_activity_week or 3,
+            'gender': gender_encoded,
+            'diet_type': diet_encoded,
+            'exercise_level': exercise_encoded,
+            'stress_level': stress_encoded,
+            'mental_health_condition': mental_encoded,
+            'sleep_hours': user.sleep_hours or 7,
+            'work_hours_per_week': user.work_hours_per_week or 40,
+            'screen_time_per_day': user.screen_time_per_day or 6.0,
+            'social_interaction_score': user.self_reported_social_interaction_score or 5,
+            'happiness_score': user.happiness_score or 5,
             'engagement': user.engagement_score,
             'motivation': user.motivation_score,
-            'segment': self.get_segment_name(user)
+            'segment': user.segment_label if user.segment_label is not None else 4
         }
         
         # Get last recommended action
@@ -696,22 +701,36 @@ class EngagementFeedback(APIView):
         user.save()
         
         # Prepare states for RL training
-        segment_names = {
-            0: "High Anxiety, Low Activity",
-            1: "Moderate Anxiety, Moderate Activity",
-            2: "Low Anxiety, High Activity",
-            3: "Physical Health Risk",
-            4: "Wellness Seekers",
-            5: "Inactive, Unengaged"
-        }
-        segment = segment_names.get(user.segment_label, "Wellness Seekers") if user.segment_label else "Wellness Seekers"
+        # Encode categorical fields
+        gender_mapping = {'male': 0, 'female': 1, 'other': 2}
+        gender_encoded = gender_mapping.get(user.gender, 0) if user.gender else 0
+        
+        diet_mapping = {'vegetarian': 0, 'vegan': 1, 'balanced': 2, 'junk_food': 3, 'keto': 4}
+        diet_encoded = diet_mapping.get(user.diet_type, 2) if user.diet_type else 2
+        
+        exercise_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        exercise_encoded = exercise_mapping.get(user.exercise_level, 1) if user.exercise_level else 1
+        
+        stress_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        stress_encoded = stress_mapping.get(user.stress_level, 1) if user.stress_level else 1
+        
+        mental_mapping = {'none': 0, 'ptsd': 1, 'depression': 2, 'anxiety': 3, 'bipolar': 4}
+        mental_encoded = mental_mapping.get(user.mental_health_condition, 0) if user.mental_health_condition else 0
+        
+        segment = user.segment_label if user.segment_label is not None else 4
         
         user_state_before = {
             'age': user.age or 30,
-            'gender': 0 if user.gender == 'male' else 1,
-            'bmi': (user.weight / ((user.height / 100) ** 2)) if user.weight and user.height else 25,
-            'anxiety_score': user.gad7_score or 10,
-            'activity_week': user.physical_activity_week or 3,
+            'gender': gender_encoded,
+            'diet_type': diet_encoded,
+            'exercise_level': exercise_encoded,
+            'stress_level': stress_encoded,
+            'mental_health_condition': mental_encoded,
+            'sleep_hours': user.sleep_hours or 7,
+            'work_hours_per_week': user.work_hours_per_week or 40,
+            'screen_time_per_day': user.screen_time_per_day or 6.0,
+            'social_interaction_score': user.self_reported_social_interaction_score or 5,
+            'happiness_score': user.happiness_score or 5,
             'engagement': old_engagement,
             'motivation': old_motivation,
             'segment': segment
@@ -719,10 +738,16 @@ class EngagementFeedback(APIView):
         
         user_state_after = {
             'age': user.age or 30,
-            'gender': 0 if user.gender == 'male' else 1,
-            'bmi': (user.weight / ((user.height / 100) ** 2)) if user.weight and user.height else 25,
-            'anxiety_score': user.gad7_score or 10,
-            'activity_week': user.physical_activity_week or 3,
+            'gender': gender_encoded,
+            'diet_type': diet_encoded,
+            'exercise_level': exercise_encoded,
+            'stress_level': stress_encoded,
+            'mental_health_condition': mental_encoded,
+            'sleep_hours': user.sleep_hours or 7,
+            'work_hours_per_week': user.work_hours_per_week or 40,
+            'screen_time_per_day': user.screen_time_per_day or 6.0,
+            'social_interaction_score': user.self_reported_social_interaction_score or 5,
+            'happiness_score': user.happiness_score or 5,
             'engagement': user.engagement_score,
             'motivation': user.motivation_score,
             'segment': segment
@@ -945,27 +970,53 @@ class RecommendedActivitiesView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _get_user_segment(self, user):
-        """Determine user segment based on anxiety and activity levels"""
-        anxiety_score = getattr(user, 'gad7_score', 10)
-        activity_week = getattr(user, 'activity_week', 3)
+        """Determine user segment - use stored segment_label from ML model"""
+        segment_names = {
+            0: "Older High Stress Exhausted",
+            1: "Young High Stress Active Social",
+            2: "Mid Life Low Stress Depressed",
+            3: "Mid Life Thriving Wellness Seeker",
+            4: "Working Professional Sedentary Stable"
+        }
         
-        if anxiety_score > 15 and activity_week < 3:
-            return "High Anxiety, Low Activity"
-        elif anxiety_score > 10 and activity_week < 4:
-            return "Moderate Anxiety, Moderate Activity"
-        elif anxiety_score < 10 and activity_week >= 4:
-            return "Low Anxiety, High Activity"
-        else:
-            return "Physical Health Risk"
+        # Use the segment_label from the ML model prediction
+        segment_id = getattr(user, 'segment_label', 4)
+        return segment_names.get(segment_id, "Working Professional Sedentary Stable")
     
     def _build_user_state(self, user, segment):
         """Build user state for RL agent"""
+        # Encode categorical fields
+        gender = getattr(user, 'gender', 'male')
+        gender_encoded = 0 if gender == 'male' else 1
+        
+        diet_mapping = {'vegetarian': 0, 'vegan': 1, 'balanced': 2, 'junk_food': 3, 'keto': 4}
+        diet_type = getattr(user, 'diet_type', 'balanced')
+        diet_encoded = diet_mapping.get(diet_type, 2)
+        
+        exercise_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        exercise_level = getattr(user, 'exercise_level', 'moderate')
+        exercise_encoded = exercise_mapping.get(exercise_level, 1)
+        
+        stress_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        stress_level = getattr(user, 'stress_level', 'moderate')
+        stress_encoded = stress_mapping.get(stress_level, 1)
+        
+        mental_mapping = {'none': 0, 'ptsd': 1, 'depression': 2, 'anxiety': 3, 'bipolar': 4}
+        mental_health = getattr(user, 'mental_health_condition', 'none')
+        mental_encoded = mental_mapping.get(mental_health, 0)
+        
         return {
             'age': getattr(user, 'age', 30),
-            'gender': 1 if getattr(user, 'gender', 'M') == 'F' else 0,
-            'bmi': getattr(user, 'bmi', 25),
-            'anxiety_score': getattr(user, 'gad7_score', 10),
-            'activity_week': getattr(user, 'activity_week', 3),
+            'gender': gender_encoded,
+            'diet_type': diet_encoded,
+            'exercise_level': exercise_encoded,
+            'stress_level': stress_encoded,
+            'mental_health_condition': mental_encoded,
+            'sleep_hours': getattr(user, 'sleep_hours', 7),
+            'work_hours_per_week': getattr(user, 'work_hours_per_week', 40),
+            'screen_time_per_day': getattr(user, 'screen_time_per_day', 6.0),
+            'social_interaction_score': getattr(user, 'self_reported_social_interaction_score', 5),
+            'happiness_score': getattr(user, 'happiness_score', 5),
             'engagement': getattr(user, 'engagement_score', 0.5),
             'motivation': getattr(user, 'motivation_score', 3),
             'segment': segment
@@ -1293,12 +1344,34 @@ class ActivityFeedbackBatchView(APIView):
             
             # Train RL agent with session-level feedback
             segment = self._get_user_segment(user)
+            
+            # Encode categorical fields
+            gender = getattr(user, 'gender', 'male')
+            gender_encoded = 0 if gender == 'male' else 1
+            
+            diet_mapping = {'vegetarian': 0, 'vegan': 1, 'balanced': 2, 'junk_food': 3, 'keto': 4}
+            diet_type = getattr(user, 'diet_type', 'balanced')
+            diet_encoded = diet_mapping.get(diet_type, 2)
+            
+            stress_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+            stress_level = getattr(user, 'stress_level', 'moderate')
+            stress_encoded = stress_mapping.get(stress_level, 1)
+            
+            mental_mapping = {'none': 0, 'ptsd': 1, 'depression': 2, 'anxiety': 3, 'bipolar': 4}
+            mental_health = getattr(user, 'mental_health_condition', 'none')
+            mental_encoded = mental_mapping.get(mental_health, 0)
+            
             user_state = {
                 'age': getattr(user, 'age', 30),
-                'gender': 1 if getattr(user, 'gender', 'F') == 'F' else 0,
-                'bmi': getattr(user, 'bmi', 25),
-                'anxiety_score': getattr(user, 'gad7_score', 10),
-                'activity_week': getattr(user, 'activity_week', 3),
+                'gender': gender_encoded,
+                'diet_type': diet_encoded,
+                'stress_level': stress_encoded,
+                'mental_health_condition': mental_encoded,
+                'sleep_hours': getattr(user, 'sleep_hours', 7),
+                'work_hours_per_week': getattr(user, 'work_hours_per_week', 40),
+                'screen_time_per_day': getattr(user, 'screen_time_per_day', 6.0),
+                'social_interaction_score': getattr(user, 'self_reported_social_interaction_score', 5),
+                'happiness_score': getattr(user, 'happiness_score', 5),
                 'engagement': float(session_engagement),
                 'motivation': getattr(user, 'motivation_score', 3),
                 'segment': segment
@@ -1366,15 +1439,15 @@ class ActivityFeedbackBatchView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _get_user_segment(self, user):
-        """Determine user segment based on anxiety and activity levels"""
-        anxiety_score = getattr(user, 'gad7_score', 10)
-        activity_week = getattr(user, 'activity_week', 3)
+        """Determine user segment - use stored segment_label from ML model"""
+        segment_names = {
+            0: "Older High Stress Exhausted",
+            1: "Young High Stress Active Social",
+            2: "Mid Life Low Stress Depressed",
+            3: "Mid Life Thriving Wellness Seeker",
+            4: "Working Professional Sedentary Stable"
+        }
         
-        if anxiety_score > 15 and activity_week < 3:
-            return "High Anxiety, Low Activity"
-        elif anxiety_score > 10 and activity_week < 4:
-            return "Moderate Anxiety, Moderate Activity"
-        elif anxiety_score < 10 and activity_week >= 4:
-            return "Low Anxiety, High Activity"
-        else:
-            return "Physical Health Risk"
+        # Use the segment_label from the ML model prediction
+        segment_id = getattr(user, 'segment_label', 4)
+        return segment_names.get(segment_id, "Working Professional Sedentary Stable")

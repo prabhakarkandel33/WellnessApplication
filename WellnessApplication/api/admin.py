@@ -5,13 +5,23 @@ from .models import CustomUser,UserStatistics
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
-    list_display = ['username', 'email', 'age', 'gender', 'gad7_score', 'physical_activity_week', 'engagement_score', 'motivation_score']
-    list_filter = ['gender', 'is_staff', 'is_active']
+    list_display = ['username', 'email', 'age', 'gender', 'stress_level', 'mental_health_condition', 'happiness_score', 'engagement_score']
+    list_filter = ['gender', 'stress_level', 'mental_health_condition', 'diet_type', 'is_staff', 'is_active']
     search_fields = ['username', 'email', 'first_name', 'last_name']
     
     fieldsets = UserAdmin.fieldsets + (
-        ('Health Profile', {
-            'fields': ('age', 'gender', 'height', 'weight', 'gad7_score', 'physical_activity_week', 'segment_label')
+        ('Personal Information', {
+            'fields': ('age', 'gender')
+        }),
+        ('Health & Wellness Profile', {
+            'fields': ('diet_type', 'stress_level', 'mental_health_condition', 'exercise_level',
+                      'sleep_hours', 'happiness_score', 'self_reported_social_interaction_score')
+        }),
+        ('Lifestyle Metrics', {
+            'fields': ('work_hours_per_week', 'screen_time_per_day', 'segment_label')
+        }),
+        ('Goals', {
+            'fields': ('primary_goal', 'workout_goal_days')
         }),
         ('RL Agent Metrics', {
             'fields': ('engagement_score', 'motivation_score', 'workouts_completed', 'meditation_sessions', 

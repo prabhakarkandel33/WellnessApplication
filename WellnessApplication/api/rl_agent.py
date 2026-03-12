@@ -66,41 +66,68 @@ class WellnessRLAgent:
             user_state: dict with keys:
                 - age: int
                 - gender: int (0=M, 1=F)
-                - bmi: float
-                - anxiety_score: int (0-20, GAD-7)
-                - activity_week: int (0-7 days)
+                - diet_type: int (0-4)
+                - exercise_level: int (0=low, 1=moderate, 2=high)
+                - stress_level: int (0=low, 1=moderate, 2=high)
+                - mental_health_condition: int (0=none, 1=ptsd, 2=depression, 3=anxiety, 4=bipolar)
+                - sleep_hours: int (0-9)
+                - work_hours_per_week: int (0-100)
+                - screen_time_per_day: float (0-24)
+                - social_interaction_score: int (0-10)
+                - happiness_score: int (0-10)
                 - engagement: float (0-1)
-                - segment: str (user segment label)
+                - segment: int (segment label)
         
         Returns:
             tuple: discrete state representation for Q-table lookup
         """
+        # Age binning (0-5)
         age_bin = min(int(user_state.get('age', 30) // 10), 5)
+        
+        # Gender (0 or 1)
         gender = int(user_state.get('gender', 0))
-        bmi = user_state.get('bmi', 25)
-        bmi_bin = min(int((bmi - 15) // 5), 6)
         
-        anxiety = user_state.get('anxiety_score', 10)
-        anxiety_bin = min(int(anxiety // 5), 4)
+        # Diet type (0-4: vegetarian, vegan, balanced, junk_food, keto)
+        diet_type = int(user_state.get('diet_type', 2))
         
-        activity = user_state.get('activity_week', 3)
-        activity_bin = min(int(activity), 7)
+        # Exercise level (0-2: low, moderate, high)
+        exercise_level = int(user_state.get('exercise_level', 1))
         
+        # Stress level (0-2: low, moderate, high)
+        stress_level = int(user_state.get('stress_level', 1))
+        
+        # Mental health condition (0-4: none, ptsd, depression, anxiety, bipolar)
+        mental_health = int(user_state.get('mental_health_condition', 0))
+        
+        # Sleep hours binning (0-2: 0-3hrs, 4-6hrs, 7-9hrs)
+        sleep_hours = user_state.get('sleep_hours', 7)
+        sleep_bin = min(int(sleep_hours // 3), 2)
+        
+        # Work hours binning (0-3: 0-20, 21-40, 41-60, 61+)
+        work_hours = user_state.get('work_hours_per_week', 40)
+        work_bin = min(int(work_hours // 20), 3)
+        
+        # Screen time binning (0-3: 0-6hrs, 7-12hrs, 13-18hrs, 19-24hrs)
+        screen_time = user_state.get('screen_time_per_day', 6.0)
+        screen_bin = min(int(screen_time // 6), 3)
+        
+        # Social interaction score binning (0-2: 0-3, 4-7, 8-10)
+        social_score = user_state.get('social_interaction_score', 5)
+        social_bin = 0 if social_score <= 3 else (1 if social_score <= 7 else 2)
+        
+        # Happiness score binning (0-2: 0-3, 4-7, 8-10)
+        happiness = user_state.get('happiness_score', 5)
+        happiness_bin = 0 if happiness <= 3 else (1 if happiness <= 7 else 2)
+        
+        # Engagement binning (0-10)
         engagement = user_state.get('engagement', 0.5)
         engagement_bin = min(int(engagement * 10), 10)
         
-        # Include segment for better state representation
-        segment_map = {
-            "High Anxiety, Low Activity": 0,
-            "Moderate Anxiety, Moderate Activity": 1,
-            "Low Anxiety, High Activity": 2,
-            "Physical Health Risk": 3,
-            "Wellness Seekers": 4,
-            "Inactive, Unengaged": 5
-        }
-        segment_id = segment_map.get(user_state.get('segment', 'Wellness Seekers'), 4)
+        # Segment ID (0-4)
+        segment_id = int(user_state.get('segment', 4))
         
-        return (age_bin, gender, bmi_bin, anxiety_bin, activity_bin, engagement_bin, segment_id)
+        return (age_bin, gender, diet_type, exercise_level, stress_level, mental_health, sleep_bin, 
+                work_bin, screen_bin, social_bin, happiness_bin, engagement_bin, segment_id)
 
     def calculate_reward(self, user_state_after, action_taken):
         """
