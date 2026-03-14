@@ -57,6 +57,11 @@ class Activity(models.Model):
     # Activity Details
     description      = models.TextField()
     duration_minutes = models.IntegerField(validators=[MinValueValidator(1)])
+    duration_seconds = models.PositiveIntegerField(
+        default=600,
+        validators=[MinValueValidator(1)],
+        help_text="Exact activity duration in seconds for frontend timer control"
+    )
     intensity        = models.CharField(
         max_length=20,
         choices=[('Low', 'Low'), ('Moderate', 'Moderate'), ('High', 'High')]
@@ -115,6 +120,14 @@ class Activity(models.Model):
 
     def save(self, *args, **kwargs):
         """Calculate derived fields when saving"""
+        # Keep minute/second duration fields consistent for timer-driven clients.
+        raw_seconds = self.duration_seconds
+        if raw_seconds is None:
+            raw_seconds = int(self.duration_minutes or 1) * 60
+
+        self.duration_seconds = max(1, int(raw_seconds))
+        self.duration_minutes = max(1, (self.duration_seconds + 59) // 60)
+
         if self.motivation_before and self.motivation_after:
             self.motivation_delta = self.motivation_after - self.motivation_before
             self.is_motivating = self.motivation_after > self.motivation_before
