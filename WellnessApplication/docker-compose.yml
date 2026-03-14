@@ -9,6 +9,7 @@ services:
     command: >
       bash -c "python manage.py makemigrations --noinput &&
                python manage.py migrate --noinput &&
+               python manage.py flood_motivational_quotes &&
                python manage.py runserver 0.0.0.0:8000"
   chatbot:
     build: ./RAG-WellnessApp
