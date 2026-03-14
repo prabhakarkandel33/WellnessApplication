@@ -3,17 +3,6 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 
-
-
-
-GOAL_CHOICES = [
-    (0, 'Improve Fitness'),
-    (1, 'Increase Mindfulness'),
-    (2, 'Lose Weight'),
-    (3, 'Reduce Stress'),
-]
-
-
 SEGMENT_CHOICES = [
     (0, 'Older High Stress Exhausted'),
     (1, 'Young High Stress Active Social'),
@@ -110,18 +99,6 @@ class CustomUser(AbstractUser):
         null=True, blank=True
     )
     
-    # Goals
-    primary_goal = models.PositiveSmallIntegerField(
-        choices=GOAL_CHOICES,
-        help_text="Primary goal for using the app",
-        null=True, blank=True   
-    )
-    workout_goal_days = models.PositiveIntegerField(
-        validators=[MinValueValidator(0), MaxValueValidator(7)],
-        help_text="Number of days per week you want to work out",
-        null=True, blank=True
-    )
-
     segment_label = models.PositiveSmallIntegerField(
         choices=SEGMENT_CHOICES,
         null=True, blank=True,

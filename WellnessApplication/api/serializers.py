@@ -20,7 +20,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             'mental_health_condition', 'exercise_level', 'sleep_hours', 
             'work_hours_per_week', 'screen_time_per_day', 
             'self_reported_social_interaction_score', 'happiness_score', 
-            'primary_goal', 'workout_goal_days', 'segment_label'
+            'segment_label'
         ]
         extra_kwargs = {
             'segment_label': {'read_only': True}
@@ -59,11 +59,6 @@ class RegisterSerializer(serializers.ModelSerializer):
     def validate_happiness_score(self, value):
         if not 0 <= value <= 10:
             raise serializers.ValidationError("Happiness score must be between 0 and 10.")
-        return value
-
-    def validate_workout_goal_days(self, value):
-        if not 0 <= value <= 7:
-            raise serializers.ValidationError("Workout goal days must be between 0 and 7.")
         return value
 
     def create(self, validated_data):

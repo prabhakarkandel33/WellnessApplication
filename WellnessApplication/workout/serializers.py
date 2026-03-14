@@ -8,12 +8,14 @@ from workout.models import Program, Activity, WorkoutSession
 
 class ActivitySerializer(serializers.ModelSerializer):
     """Serializer for Activity model"""
+    duration_seconds = serializers.SerializerMethodField(help_text="Exact activity timer duration in seconds")
     
     class Meta:
         model = Activity
         fields = [
             'id', 'program', 'activity_name', 'activity_type', 'user_segment', 'rl_action_id',
             'description', 'duration_minutes', 'intensity', 'instructions',
+            'duration_seconds',
             'assigned_date', 'completed', 'completion_date',
             'motivation_before', 'motivation_after', 'motivation_delta',
             'difficulty_rating', 'enjoyment_rating', 'is_motivating',
@@ -24,34 +26,60 @@ class ActivitySerializer(serializers.ModelSerializer):
             'engagement_contribution', 'created_at', 'updated_at'
         ]
 
+    def get_duration_seconds(self, obj):
+        return int(obj.duration_minutes or 0) * 60
+
 
 class ProgramActivitySerializer(serializers.ModelSerializer):
     """Activity payload nested under a program."""
+    duration_seconds = serializers.SerializerMethodField(help_text="Exact activity timer duration in seconds")
 
     class Meta:
         model = Activity
         fields = [
             'id', 'activity_name', 'activity_type', 'description',
             'duration_minutes', 'intensity', 'instructions',
+            'duration_seconds',
             'completed', 'completion_date',
             'motivation_before', 'motivation_after',
             'assigned_date'
         ]
         read_only_fields = fields
 
+    def get_duration_seconds(self, obj):
+        return int(obj.duration_minutes or 0) * 60
+
 
 class ProgramSerializer(serializers.ModelSerializer):
     """Program payload with contained activities."""
     activities = ProgramActivitySerializer(many=True, read_only=True)
+    total_activities = serializers.SerializerMethodField(help_text="Total activities in this program")
+    completed_activities = serializers.SerializerMethodField(help_text="Number of completed activities")
+    completion_rate = serializers.SerializerMethodField(help_text="Completion rate from 0.0 to 1.0")
 
     class Meta:
         model = Program
         fields = [
             'id', 'program_type', 'name', 'description', 'segment',
             'duration', 'frequency', 'intensity', 'progression', 'focus',
-            'rl_action_id', 'created_at', 'activities'
+            'rl_action_id', 'completed', 'completion_date',
+            'total_activities', 'completed_activities', 'completion_rate',
+            'created_at', 'activities'
         ]
         read_only_fields = fields
+
+    def get_total_activities(self, obj):
+        return obj.activities.count()
+
+    def get_completed_activities(self, obj):
+        return obj.activities.filter(completed=True).count()
+
+    def get_completion_rate(self, obj):
+        total = obj.activities.count()
+        if total == 0:
+            return 0.0
+        done = obj.activities.filter(completed=True).count()
+        return round(done / total, 2)
 
 
 class RecommendedProgramsResponseSerializer(serializers.Serializer):
@@ -83,9 +111,12 @@ class ActivityCompletionResponseSerializer(serializers.Serializer):
     status = serializers.CharField()
     activity_id = serializers.IntegerField()
     activity_name = serializers.CharField()
+    duration_minutes = serializers.IntegerField()
+    duration_seconds = serializers.IntegerField()
     completed = serializers.BooleanField()
     motivation = serializers.IntegerField()
     engagement_contribution = serializers.FloatField()
+    program_status = serializers.DictField(required=False, allow_null=True)
     user_stats = serializers.DictField()
 
 
@@ -233,11 +264,22 @@ class RLTrainingInfoSerializer(serializers.Serializer):
     total_reward = serializers.FloatField(help_text="Cumulative reward")
 
 
+class ProgramUpdateSerializer(serializers.Serializer):
+    """Program completion summary returned after activity updates."""
+    program_id = serializers.IntegerField()
+    total_activities = serializers.IntegerField()
+    completed_activities = serializers.IntegerField()
+    completion_rate = serializers.FloatField()
+    completed = serializers.BooleanField()
+    completion_date = serializers.DateTimeField(allow_null=True)
+
+
 class ActivityFeedbackBatchResponseSerializer(serializers.Serializer):
     """Response for batch activity feedback"""
     status = serializers.CharField()
     session = serializers.DictField(help_text="Created workout session details")
     metrics = SessionMetricsSerializer(help_text="Session-level metrics")
+    program_updates = ProgramUpdateSerializer(many=True, help_text="Updated program completion statuses")
     rl_training = RLTrainingInfoSerializer(help_text="RL training information")
     activity_recommendations = serializers.ListField(
         child=serializers.DictField(),

@@ -20,9 +20,6 @@ class CustomUserAdmin(UserAdmin):
         ('Lifestyle Metrics', {
             'fields': ('work_hours_per_week', 'screen_time_per_day', 'segment_label')
         }),
-        ('Goals', {
-            'fields': ('primary_goal', 'workout_goal_days')
-        }),
         ('RL Agent Metrics', {
             'fields': ('engagement_score', 'motivation_score', 'workouts_completed', 'meditation_sessions', 
                       'last_action_recommended', 'last_recommendation_date'),
