@@ -5,7 +5,12 @@ from journal.models import JournalEntry, JournalPrompt, JournalReadEvent, Journa
 
 class JournalEntryFilterSerializer(serializers.Serializer):
     q = serializers.CharField(required=False, allow_blank=True)
-    mood = serializers.IntegerField(required=False, min_value=1, max_value=5)
+    mood = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=5,
+        help_text='Filter by mood using the scale: 1=Very Low, 2=Low, 3=Neutral, 4=Good, 5=Great.',
+    )
     is_favorite = serializers.BooleanField(required=False)
     is_archived = serializers.BooleanField(required=False)
     tag = serializers.CharField(required=False, allow_blank=True)
@@ -35,13 +40,19 @@ _DISTORTION_LABEL = {key: label for key, label in JournalEntry.COGNITIVE_DISTORT
 
 class JournalEntrySerializer(serializers.ModelSerializer):
     tags = JournalTagSerializer(many=True, read_only=True)
+    mood = serializers.ChoiceField(
+        choices=JournalEntry.MOOD_CHOICES,
+        help_text='Mood rating for the entry. Use: 1=Very Low, 2=Low, 3=Neutral, 4=Good, 5=Great.',
+    )
     tag_names = serializers.ListField(
         child=serializers.CharField(max_length=50),
         write_only=True,
         required=False,
         allow_empty=True,
     )
-    mood_label = serializers.SerializerMethodField()
+    mood_label = serializers.SerializerMethodField(
+        help_text='Human-readable label for the numeric mood value.',
+    )
     excerpt = serializers.SerializerMethodField()
     # CBT computed helpers (read-only)
     has_thought_record = serializers.SerializerMethodField()

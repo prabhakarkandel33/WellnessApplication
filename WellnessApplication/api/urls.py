@@ -20,4 +20,6 @@ urlpatterns = [
     path('statistics/', UserStatisticsView.as_view(), name='user_statistics'),
     path('journal/', include('journal.urls')),
     path('workout/',include('workout.urls')),
+    path('notifications/', include('notifications.urls')),
 ]
+
