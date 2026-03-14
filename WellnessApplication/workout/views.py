@@ -991,9 +991,8 @@ class RecommendedActivitiesView(APIView):
             physical_program = Program.objects.create(
                 user=user,
                 program_type=Program.ProgramType.PHYSICAL,
-                name=f"{segment} - Physical Program",
+                name="Physical Wellness Program",
                 description="Personalized physical wellness activities",
-                segment=segment,
                 duration=f"{sum(self._safe_duration_minutes(item.get('duration')) for item in physical_selected)} minutes",
                 frequency="Daily",
                 intensity=self._pick_dominant_intensity(physical_selected),
@@ -1004,9 +1003,8 @@ class RecommendedActivitiesView(APIView):
             mental_program = Program.objects.create(
                 user=user,
                 program_type=Program.ProgramType.MENTAL,
-                name=f"{segment} - Mental Program",
+                name="Mental Wellness Program",
                 description="Personalized mental wellness activities",
-                segment=segment,
                 duration=f"{sum(self._safe_duration_minutes(item.get('duration')) for item in mental_selected)} minutes",
                 frequency="Daily",
                 focus="Stress management and emotional regulation",
@@ -1033,8 +1031,6 @@ class RecommendedActivitiesView(APIView):
             
             return Response({
                 "status": "success",
-                "user_segment": segment,
-                "activity_segment": activity_segment,
                 "rl_action": action,
                 "rl_action_name": action_name,
                 "reason": self._get_action_reason(action),

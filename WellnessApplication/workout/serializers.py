@@ -14,7 +14,7 @@ class ActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Activity
         fields = [
-            'activity_id', 'id', 'program_id', 'program', 'activity_name', 'activity_type', 'user_segment', 'rl_action_id',
+            'activity_id', 'id', 'program_id', 'program', 'activity_name', 'activity_type', 'rl_action_id',
             'description', 'duration_minutes', 'intensity', 'instructions',
             'duration_seconds',
             'assigned_date', 'completed', 'completion_date',
@@ -57,7 +57,7 @@ class ProgramSerializer(serializers.ModelSerializer):
     class Meta:
         model = Program
         fields = [
-            'program_id', 'id', 'program_type', 'name', 'description', 'segment',
+            'program_id', 'id', 'program_type', 'name', 'description',
             'duration', 'frequency', 'intensity', 'progression', 'focus',
             'rl_action_id', 'completed', 'completion_date',
             'total_activities', 'completed_activities', 'completion_rate',
@@ -82,8 +82,6 @@ class ProgramSerializer(serializers.ModelSerializer):
 class RecommendedProgramsResponseSerializer(serializers.Serializer):
     """Response for GET /workout/activity/recommended/ with persisted programs."""
     status = serializers.CharField(help_text="Success status")
-    user_segment = serializers.CharField(help_text="User's wellness segment")
-    activity_segment = serializers.CharField(help_text="Mapped activity catalog segment")
     rl_action = serializers.IntegerField(help_text="RL action ID selected (0-5)")
     rl_action_name = serializers.CharField(help_text="Human-readable action name")
     reason = serializers.CharField(help_text="Explanation of why these activities were chosen")
