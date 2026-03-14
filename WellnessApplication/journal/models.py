@@ -37,6 +37,23 @@ class JournalEntry(models.Model):
         (5, 'Great'),
     ]
 
+    # Cognitive distortion keys used in the thought-record workflow.
+    # Frontend renders these as a multi-select checklist.
+    COGNITIVE_DISTORTIONS = [
+        ('all_or_nothing', 'All-or-Nothing Thinking'),
+        ('overgeneralization', 'Overgeneralization'),
+        ('mental_filter', 'Mental Filter'),
+        ('disqualifying_positive', 'Disqualifying the Positive'),
+        ('mind_reading', 'Mind Reading'),
+        ('fortune_telling', 'Fortune Telling'),
+        ('catastrophizing', 'Catastrophizing'),
+        ('emotional_reasoning', 'Emotional Reasoning'),
+        ('should_statements', '"Should" Statements'),
+        ('labeling', 'Labeling'),
+        ('personalization', 'Personalization'),
+        ('jumping_to_conclusions', 'Jumping to Conclusions'),
+    ]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -59,6 +76,55 @@ class JournalEntry(models.Model):
     word_count = models.PositiveIntegerField(default=0)
     read_count = models.PositiveIntegerField(default=0)
     last_read_at = models.DateTimeField(null=True, blank=True)
+
+    # ── CBT Thought-Record fields (all optional) ──────────────────────────────
+    # Step 1 – Situation
+    situation = models.TextField(
+        blank=True,
+        help_text='What happened? Briefly describe the triggering event or context.',
+    )
+    # Step 2 – Automatic thought
+    automatic_thought = models.TextField(
+        blank=True,
+        help_text='What went through your mind? Write the automatic thought word-for-word.',
+    )
+    # Step 3 – Emotion intensity before reframing (0-100)
+    emotion_intensity_before = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text='How intense is the emotion right now? (0 = none, 100 = maximum)',
+    )
+    # Step 4 – Cognitive distortions (list of keys from COGNITIVE_DISTORTIONS)
+    cognitive_distortions = models.JSONField(
+        default=list, blank=True,
+        help_text='Identified cognitive distortions as a JSON list of keys.',
+    )
+    # Step 5 – Evidence examination
+    evidence_for = models.TextField(
+        blank=True,
+        help_text='Facts that support the automatic thought.',
+    )
+    evidence_against = models.TextField(
+        blank=True,
+        help_text='Facts that challenge or contradict the automatic thought.',
+    )
+    # Step 6 – Balanced/alternative thought
+    balanced_thought = models.TextField(
+        blank=True,
+        help_text='A more balanced or realistic alternative to the automatic thought.',
+    )
+    # Step 7 – Emotion intensity after reframing (0-100)
+    emotion_intensity_after = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text='How intense is the emotion after reframing? (0 = none, 100 = maximum)',
+    )
+    # Step 8 – Behavioral response
+    behavioral_response = models.TextField(
+        blank=True,
+        help_text='What action will you take based on this reflection?',
+    )
+    # ─────────────────────────────────────────────────────────────────────────
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -118,6 +184,7 @@ class JournalPrompt(models.Model):
         ('stress', 'Stress Processing'),
         ('goals', 'Goals and Direction'),
         ('self_compassion', 'Self Compassion'),
+        ('thought_record', 'CBT Thought Record'),
     ]
 
     category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, default='reflection')
