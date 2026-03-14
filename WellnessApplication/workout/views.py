@@ -6,22 +6,41 @@ from rest_framework.response import Response
 from rest_framework import status
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
+from django.db.models import Avg, Sum, Count
+import random
 import os
 import sys
 
 # Add parent directory to path to import from api
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.rl_agent import WellnessRLAgent, RLModelManager
+from workout.models import Program, Activity, WorkoutSession
+from workout.activities import ACTIVITIES_BY_SEGMENT
 from workout.serializers import (
     RecommendProgramResponseSerializer,
     EngagementFeedbackRequestSerializer,
     EngagementFeedbackResponseSerializer,
-    RecommendedActivitiesResponseSerializer,
+    RecommendedProgramsResponseSerializer,
     ActivityCompletionRequestSerializer,
     ActivityCompletionResponseSerializer,
     ActivityFeedbackBatchRequestSerializer,
-    ActivityFeedbackBatchResponseSerializer
+    ActivityFeedbackBatchResponseSerializer,
+    ProgramSerializer,
 )
+
+
+SEGMENT_TO_ACTIVITY_KEY = {
+    "Older High Stress Exhausted": "High Anxiety, Low Activity",
+    "Young High Stress Active Social": "Low Anxiety, High Activity",
+    "Mid Life Low Stress Depressed": "Physical Health Risk",
+    "Mid Life Thriving Wellness Seeker": "Moderate Anxiety, Moderate Activity",
+    "Working Professional Sedentary Stable": "Moderate Anxiety, Moderate Activity",
+}
+
+
+def get_activity_segment_key(segment_name):
+    """Map model segment labels to activity-catalog segment keys."""
+    return SEGMENT_TO_ACTIVITY_KEY.get(segment_name, "Moderate Anxiety, Moderate Activity")
 
 @extend_schema(tags=['Workout Programs'])
 class RecommendProgram(APIView):
@@ -790,11 +809,6 @@ class EngagementFeedback(APIView):
 
 # New Activity-Based Views with Dynamic Adjustment
 
-from workout.models import Activity, WorkoutSession
-from workout.activities import ACTIVITIES_BY_SEGMENT
-from django.db.models import Avg, Sum, Count
-import random
-
 
 @extend_schema(tags=['Activity Recommendations'])
 class RecommendedActivitiesView(APIView):
@@ -822,14 +836,15 @@ class RecommendedActivitiesView(APIView):
         1. System identifies your wellness segment (based on anxiety/activity levels)
         2. RL agent selects optimal action (0-5) based on your engagement history
         3. Activities are chosen and duration/difficulty adjusted dynamically
-        4. You receive a mix of physical and mental wellness activities
+        4. Two persisted programs are created: one physical and one mental
+        5. Every activity is saved with an ID and linked to its parent program
         
         **RL Actions:**
         - **0 - Increase Workout Intensity**: More challenging physical activities
         - **1 - Decrease Workout Intensity**: Lighter, easier activities
         - **2 - Increase Meditation**: More mental wellness focus
         - **3 - Motivational Balance**: Mix of physical & mental
-        - **4 - Introduce Journaling**: Focus on reflection activities
+        - **4 - Increase Mental Focus**: More reflection and mindfulness activities
         - **5 - Maintain Current**: Keep current difficulty level
         
         **Activity Fields:**
@@ -837,6 +852,8 @@ class RecommendedActivitiesView(APIView):
         - `intensity`: low, moderate, or high
         - `rl_action_id`: Which RL action generated this (0-5)
         - `instructions`: Step-by-step guidance
+        - `id`: Persisted ID for completion tracking
+        - `program`: Parent program relationship
         
         **Next Steps:**
         1. Complete activities using `/workout/activity/{id}/complete/`
@@ -844,7 +861,7 @@ class RecommendedActivitiesView(APIView):
         3. RL agent learns and adapts future recommendations
         """,
         responses={
-            200: RecommendedActivitiesResponseSerializer,
+            200: RecommendedProgramsResponseSerializer,
             401: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
@@ -853,32 +870,35 @@ class RecommendedActivitiesView(APIView):
                 'Success Response',
                 value={
                     "status": "success",
-                    "user_segment": "Moderate Anxiety, Moderate Activity",
+                    "user_segment": "Working Professional Sedentary Stable",
+                    "activity_segment": "Moderate Anxiety, Moderate Activity",
                     "rl_action": 3,
                     "rl_action_name": "Send Motivational Message (SMM)",
                     "reason": "Time for a balanced routine combining physical and mental wellness",
-                    "recommended_activities": [
-                        {
-                            "id": 123,
-                            "activity_name": "Morning Yoga Flow",
-                            "activity_type": "physical",
-                            "duration_minutes": 25,
-                            "intensity": "moderate",
-                            "instructions": "1. Start with breathing...",
-                            "user_segment": "Moderate Anxiety, Moderate Activity",
-                            "rl_action_id": 3,
-                            "assigned_date": "2025-12-15",
-                            "completed": False
-                        },
-                        {
-                            "id": 124,
-                            "activity_name": "Mindful Breathing",
-                            "activity_type": "mental",
-                            "duration_minutes": 15,
-                            "intensity": "low",
-                            "rl_action_id": 3
-                        }
-                    ],
+                    "physical_program": {
+                        "id": 24,
+                        "program_type": "physical",
+                        "name": "Working Professional Sedentary Stable - Physical Program",
+                        "activities": [
+                            {
+                                "id": 123,
+                                "activity_name": "Brisk Walking: 20 Minutes",
+                                "activity_type": "exercise"
+                            }
+                        ]
+                    },
+                    "mental_program": {
+                        "id": 25,
+                        "program_type": "mental",
+                        "name": "Working Professional Sedentary Stable - Mental Program",
+                        "activities": [
+                            {
+                                "id": 124,
+                                "activity_name": "Mindfulness Meditation: 10 Minutes",
+                                "activity_type": "meditation"
+                            }
+                        ]
+                    },
                     "total_activities": 2,
                     "user_engagement": 0.68,
                     "user_motivation": 4
@@ -888,22 +908,27 @@ class RecommendedActivitiesView(APIView):
         ]
     )
     def get(self, request):
-        """Get recommended activities for the user"""
+        """Create and return persisted physical + mental programs with activity IDs."""
         user = request.user
         
         try:
             # Get user's segment
             segment = self._get_user_segment(user)
+            activity_segment = get_activity_segment_key(segment)
             
             # Get RL agent's recommended action
             user_state = self._build_user_state(user, segment)
             action = RecommendedActivitiesView.rl_agent.select_action(user_state)
             action_name = RecommendedActivitiesView.rl_agent.get_action_name(action)
             
-            # Get activities for this segment
-            segment_activities = ACTIVITIES_BY_SEGMENT.get(segment, {})
+            # Get activities using mapped activity segment key
+            segment_activities = ACTIVITIES_BY_SEGMENT.get(activity_segment, {})
             physical_activities = segment_activities.get("physical", [])
-            mental_activities = segment_activities.get("mental", [])
+            # Skip journaling templates; this endpoint handles exercise + meditation only.
+            mental_activities = [
+                item for item in segment_activities.get("mental", [])
+                if str(item.get("type", "")).lower() != 'journaling'
+            ]
             
             # Select activities based on RL action
             selected_activities = self._select_activities_by_action(
@@ -921,44 +946,72 @@ class RecommendedActivitiesView(APIView):
                     recent_completions.get('engagement_history', [])
                 )
                 adjusted_activities.append(adjusted)
-            
-            # Structure the response for frontend rendering with exercises and timing
-            structured_workouts = []
-            for activity in adjusted_activities:
-                structured_workout = {
-                    "workout_name": activity.get("name", "Unnamed Activity"),
-                    "activity_type": activity.get("type", "exercise"),
-                    "duration_minutes": activity.get("duration", 0),
-                    "intensity": activity.get("intensity", "Moderate"),
-                    "description": activity.get("description", ""),
-                    "exercises": []
-                }
-                
-                # Parse instructions into individual exercises with timing
-                instructions = activity.get("instructions", [])
-                if instructions:
-                    # Calculate time per instruction (divide total time by number of steps)
-                    time_per_step = activity.get("duration", 0) / len(instructions) if len(instructions) > 0 else 1
-                    
-                    for i, instruction in enumerate(instructions):
-                        exercise = {
-                            "name": instruction,
-                            "order": i + 1,
-                            "timing_minutes": round(time_per_step, 1),
-                            "timing_seconds": round(time_per_step * 60, 0)
-                        }
-                        structured_workout["exercises"].append(exercise)
-                
-                structured_workouts.append(structured_workout)
+
+            # Ensure both program groups exist with at least one activity when possible.
+            physical_selected = [
+                a for a in adjusted_activities
+                if self._normalize_activity_type(a.get('type')) == 'exercise'
+            ]
+            mental_selected = [
+                a for a in adjusted_activities
+                if self._normalize_activity_type(a.get('type')) == 'meditation'
+            ]
+
+            if not physical_selected and physical_activities:
+                physical_selected = [random.choice(physical_activities)]
+            if not mental_selected and mental_activities:
+                mental_selected = [random.choice(mental_activities)]
+
+            physical_program = Program.objects.create(
+                user=user,
+                program_type=Program.ProgramType.PHYSICAL,
+                name=f"{segment} - Physical Program",
+                description="Personalized physical wellness activities",
+                segment=segment,
+                duration=f"{sum(self._safe_duration_minutes(item.get('duration')) for item in physical_selected)} minutes",
+                frequency="Daily",
+                intensity=self._pick_dominant_intensity(physical_selected),
+                progression="Adjust gradually based on completion and motivation",
+                rl_action_id=action,
+            )
+
+            mental_program = Program.objects.create(
+                user=user,
+                program_type=Program.ProgramType.MENTAL,
+                name=f"{segment} - Mental Program",
+                description="Personalized mental wellness activities",
+                segment=segment,
+                duration=f"{sum(self._safe_duration_minutes(item.get('duration')) for item in mental_selected)} minutes",
+                frequency="Daily",
+                focus="Stress management and emotional regulation",
+                rl_action_id=action,
+            )
+
+            created_physical = self._create_program_activities(
+                user=user,
+                program=physical_program,
+                segment=segment,
+                action=action,
+                catalog_activities=physical_selected,
+            )
+            created_mental = self._create_program_activities(
+                user=user,
+                program=mental_program,
+                segment=segment,
+                action=action,
+                catalog_activities=mental_selected,
+            )
             
             return Response({
                 "status": "success",
                 "user_segment": segment,
+                "activity_segment": activity_segment,
                 "rl_action": action,
                 "rl_action_name": action_name,
                 "reason": self._get_action_reason(action),
-                "workouts": structured_workouts,
-                "total_workouts": len(structured_workouts),
+                "physical_program": ProgramSerializer(physical_program).data,
+                "mental_program": ProgramSerializer(mental_program).data,
+                "total_activities": len(created_physical) + len(created_mental),
                 "user_engagement": recent_completions.get('avg_engagement', 0.5),
                 "user_motivation": user.motivation_score if hasattr(user, 'motivation_score') else 3
             }, status=status.HTTP_200_OK)
@@ -1036,7 +1089,7 @@ class RecommendedActivitiesView(APIView):
         elif action == 3:  # Send Motivational Message
             activities.extend(random.sample(physical, min(1, len(physical))))
             activities.extend(random.sample(mental, min(1, len(mental))))
-        elif action == 4:  # Introduce Journaling Feature
+        elif action == 4:  # Increase Mental Focus
             activities.extend(random.sample(mental, min(2, len(mental))))
         else:  # Maintain Current Plan (action 5)
             activities.extend(random.sample(physical, min(1, len(physical))))
@@ -1070,10 +1123,138 @@ class RecommendedActivitiesView(APIView):
             1: "Let's ease up on intensity to prevent burnout",
             2: "Meditation can help with stress management and clarity",
             3: "Time for a balanced routine combining physical and mental wellness",
-            4: "Journaling can help process emotions and track progress",
+            4: "Additional mental wellness focus can improve consistency and recovery",
             5: "Your current routine is working well, let's maintain it"
         }
         return reasons.get(action, "Personalized recommendation based on your profile")
+
+    def _safe_duration_minutes(self, value):
+        """Convert duration values to a positive integer minute value."""
+        try:
+            return max(1, int(round(float(value))))
+        except (TypeError, ValueError):
+            return 10
+
+    def _normalize_intensity(self, value):
+        intensity = str(value or 'Moderate').strip().lower()
+        if intensity.startswith('low'):
+            return 'Low'
+        if intensity.startswith('high'):
+            return 'High'
+        return 'Moderate'
+
+    def _normalize_activity_type(self, value):
+        """Normalize catalog activity type to Activity model choices."""
+        return 'exercise' if str(value).lower() == 'exercise' else 'meditation'
+
+    def _pick_dominant_intensity(self, activities):
+        """Return strongest intensity among selected physical activities."""
+        rank = {'Low': 1, 'Moderate': 2, 'High': 3}
+        dominant = 'Moderate'
+        for activity in activities:
+            normalized = self._normalize_intensity(activity.get('intensity'))
+            if rank[normalized] > rank[dominant]:
+                dominant = normalized
+        return dominant
+
+    def _create_program_activities(self, user, program, segment, action, catalog_activities):
+        """Persist selected catalog activities under a program and return created rows."""
+        created = []
+        now = timezone.now()
+
+        for item in catalog_activities:
+            instructions = item.get('instructions', [])
+            if not isinstance(instructions, list):
+                instructions = [str(instructions)] if instructions else []
+
+            created.append(
+                Activity.objects.create(
+                    user=user,
+                    program=program,
+                    activity_name=item.get('name', 'Unnamed Activity'),
+                    activity_type=self._normalize_activity_type(item.get('type')),
+                    user_segment=segment,
+                    rl_action_id=action,
+                    description=item.get('description', ''),
+                    duration_minutes=self._safe_duration_minutes(item.get('duration')),
+                    intensity=self._normalize_intensity(item.get('intensity')),
+                    instructions=instructions,
+                    assigned_date=now,
+                )
+            )
+
+        return created
+
+
+@extend_schema(tags=['Workout Programs'])
+class ProgramListView(APIView):
+    """GET /workout/programs/?type=physical|mental"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="List User Programs",
+        description="List all persisted programs for the authenticated user. Optionally filter by type.",
+        parameters=[
+            OpenApiParameter(
+                name='type',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=['physical', 'mental'],
+                description='Optional program type filter'
+            )
+        ],
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
+    )
+    def get(self, request):
+        program_type = request.query_params.get('type')
+
+        programs = Program.objects.filter(user=request.user).prefetch_related('activities')
+        if program_type:
+            if program_type not in (Program.ProgramType.PHYSICAL, Program.ProgramType.MENTAL):
+                return Response(
+                    {"status": "error", "message": "Invalid type. Use 'physical' or 'mental'."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            programs = programs.filter(program_type=program_type)
+
+        serialized = ProgramSerializer(programs, many=True)
+        return Response(
+            {"status": "success", "count": len(serialized.data), "programs": serialized.data},
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(tags=['Workout Programs'])
+class ProgramDetailView(APIView):
+    """GET /workout/programs/{id}/"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Get Program Detail",
+        description="Fetch one persisted program with all contained activities.",
+        parameters=[
+            OpenApiParameter(
+                name='program_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description='Program ID'
+            )
+        ],
+        responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, program_id):
+        program = Program.objects.filter(user=request.user, id=program_id).prefetch_related('activities').first()
+        if not program:
+            return Response(
+                {"status": "error", "message": "Program not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {"status": "success", "program": ProgramSerializer(program).data},
+            status=status.HTTP_200_OK,
+        )
 
 
 @extend_schema(tags=['Activity Tracking'])
@@ -1333,8 +1514,12 @@ class ActivityFeedbackBatchView(APIView):
                 activity_ids.append(activity.id)
                 total_engagement += activity.engagement_contribution
             
-            # Create or update workout session
-            session = WorkoutSession.objects.create(user=user, overall_rating=overall_rating, notes=session_notes)
+            # Create session and calculate aggregate metrics.
+            session = WorkoutSession.objects.create(
+                user=user,
+                overall_session_rating=overall_rating,
+                session_notes=session_notes,
+            )
             session.activities.set(activity_ids)
             session.calculate_metrics()
             session.save()
@@ -1380,12 +1565,6 @@ class ActivityFeedbackBatchView(APIView):
             # Get last recommended action (from request or user's last action)
             last_action = getattr(user, 'last_action_recommended', 5)
             
-            # Update RL agent with training signal
-            activity_feedback_state = {
-                'engagement': float(session_engagement),
-                'motivation': overall_rating
-            }
-            
             ActivityFeedbackBatchView.rl_agent.update_q_value(
                 user_state, last_action, session.engagement_contribution, user_state
             )
@@ -1395,9 +1574,14 @@ class ActivityFeedbackBatchView(APIView):
             ActivityFeedbackBatchView.rl_model_manager.save_agent(ActivityFeedbackBatchView.rl_agent)
             
             # Get activity recommendations for next session
+            activity_segment = get_activity_segment_key(segment)
+            next_catalog = ACTIVITIES_BY_SEGMENT.get(activity_segment, {})
+            next_mental = [
+                item for item in next_catalog.get('mental', [])
+                if str(item.get('type', '')).lower() != 'journaling'
+            ]
             recommendations = ActivityFeedbackBatchView.rl_agent.recommend_activity_modifications(
-                ACTIVITIES_BY_SEGMENT.get(segment, {}).get('physical', []) + 
-                ACTIVITIES_BY_SEGMENT.get(segment, {}).get('mental', []),
+                next_catalog.get('physical', []) + next_mental,
                 {}  # Would be populated with real engagement history in production
             )
             

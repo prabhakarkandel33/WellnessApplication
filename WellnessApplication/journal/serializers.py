@@ -37,6 +37,7 @@ class JournalTagSerializer(serializers.ModelSerializer):
 _DISTORTION_CHOICES = sorted(JournalEntry.COGNITIVE_DISTORTIONS, key=lambda x: x[0])
 _DISTORTION_KEYS  = {key for key, _ in _DISTORTION_CHOICES}
 _DISTORTION_LABEL = {key: label for key, label in _DISTORTION_CHOICES}
+_DISTORTION_KEY_BY_LABEL = {label: key for key, label in _DISTORTION_CHOICES}
 
 
 class JournalEntrySerializer(serializers.ModelSerializer):
@@ -49,18 +50,28 @@ class JournalEntrySerializer(serializers.ModelSerializer):
     cognitive_distortions = serializers.ListField(
         child=serializers.ChoiceField(
             choices=_DISTORTION_CHOICES,
-            help_text='One of the 12 cognitive distortion keys.',
+            help_text='Pick one or more distortions from the dropdown.',
         ),
         default=list,
         required=False,
         allow_empty=True,
         help_text=(
-            'Array of cognitive distortion keys identified in this thought record. '
-            'Each item must be one of the 12 valid keys. '
-            'Valid keys: all_or_nothing, catastrophizing, disqualifying_positive, '
-            'emotional_reasoning, evidence_against, fortune_telling, jumping_to_conclusions, '
-            'labeling, mental_filter, mind_reading, overgeneralization, '
-            'personalization, should_statements.'
+            'Array of cognitive distortion keys. '
+            'You can also send `cognitive_distortion_labels` instead if that is easier.'
+        ),
+    )
+    cognitive_distortion_labels = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=[(label, label) for _, label in _DISTORTION_CHOICES],
+            help_text='Alternative input using human-readable labels.',
+        ),
+        write_only=True,
+        required=False,
+        allow_empty=True,
+        default=list,
+        help_text=(
+            'Optional easier input: send labels instead of keys. '
+            'If `cognitive_distortions` is omitted, labels are converted to keys automatically.'
         ),
     )
     tag_names = serializers.ListField(
@@ -100,6 +111,7 @@ class JournalEntrySerializer(serializers.ModelSerializer):
             'automatic_thought',
             'emotion_intensity_before',
             'cognitive_distortions',
+            'cognitive_distortion_labels',
             'cognitive_distortions_display',
             'evidence_for',
             'evidence_against',
@@ -167,6 +179,25 @@ class JournalEntrySerializer(serializers.ModelSerializer):
                 f'Valid keys: {sorted(_DISTORTION_KEYS)}'
             )
         return value
+
+    def validate(self, attrs):
+        """Allow label-based input while storing normalized keys in the model."""
+        attrs = super().validate(attrs)
+
+        label_list = attrs.pop('cognitive_distortion_labels', None)
+        key_list = attrs.get('cognitive_distortions')
+
+        if (not key_list) and label_list:
+            attrs['cognitive_distortions'] = [
+                _DISTORTION_KEY_BY_LABEL[label]
+                for label in label_list
+            ]
+
+        # Deduplicate while preserving user-provided order.
+        if 'cognitive_distortions' in attrs:
+            attrs['cognitive_distortions'] = list(dict.fromkeys(attrs['cognitive_distortions']))
+
+        return attrs
 
     def validate_tag_names(self, value):
         cleaned = []
