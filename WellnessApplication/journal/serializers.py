@@ -33,9 +33,10 @@ class JournalTagSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'slug']
 
 
-# Keys that are valid cognitive distortion identifiers.
-_DISTORTION_KEYS = {key for key, _ in JournalEntry.COGNITIVE_DISTORTIONS}
-_DISTORTION_LABEL = {key: label for key, label in JournalEntry.COGNITIVE_DISTORTIONS}
+# Sorted list of (key, label) pairs – single source of truth for schema + validation.
+_DISTORTION_CHOICES = sorted(JournalEntry.COGNITIVE_DISTORTIONS, key=lambda x: x[0])
+_DISTORTION_KEYS  = {key for key, _ in _DISTORTION_CHOICES}
+_DISTORTION_LABEL = {key: label for key, label in _DISTORTION_CHOICES}
 
 
 class JournalEntrySerializer(serializers.ModelSerializer):
@@ -43,6 +44,24 @@ class JournalEntrySerializer(serializers.ModelSerializer):
     mood = serializers.ChoiceField(
         choices=JournalEntry.MOOD_CHOICES,
         help_text='Mood rating for the entry. Use: 1=Very Low, 2=Low, 3=Neutral, 4=Good, 5=Great.',
+    )
+    # Explicit typed field so Swagger renders an enum array instead of a generic JSON blob.
+    cognitive_distortions = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=_DISTORTION_CHOICES,
+            help_text='One of the 12 cognitive distortion keys.',
+        ),
+        default=list,
+        required=False,
+        allow_empty=True,
+        help_text=(
+            'Array of cognitive distortion keys identified in this thought record. '
+            'Each item must be one of the 12 valid keys. '
+            'Valid keys: all_or_nothing, catastrophizing, disqualifying_positive, '
+            'emotional_reasoning, evidence_against, fortune_telling, jumping_to_conclusions, '
+            'labeling, mental_filter, mind_reading, overgeneralization, '
+            'personalization, should_statements.'
+        ),
     )
     tag_names = serializers.ListField(
         child=serializers.CharField(max_length=50),
