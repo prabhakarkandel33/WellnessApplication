@@ -1,9 +1,10 @@
+import statistics as _stats
 from datetime import timedelta
 
 from django.db.models import Avg, Count, F, Q
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +13,7 @@ from rest_framework.views import APIView
 
 from journal.models import JournalEntry, JournalPrompt, JournalReadEvent, JournalTag
 from journal.serializers import (
+    CBTGuideSerializer,
     JournalEntryFilterSerializer,
     JournalEntrySerializer,
     JournalInsightsSerializer,
@@ -52,28 +54,66 @@ def _compute_streaks(entry_dates):
     return current_streak, longest_streak
 
 
+_ENTRY_CBT_DESCRIPTION = """
+**CBT Thought-Record fields** (all optional — omit them for a plain free-form entry):
+
+| Field | CBT Step | Notes |
+|---|---|---|
+| `situation` | 1 – Situation | Brief description of the triggering event |
+| `automatic_thought` | 2 – Automatic Thought | Raw thought, word-for-word |
+| `emotion_intensity_before` | 3 – Emotion Intensity | Integer 0–100 before reframing |
+| `cognitive_distortions` | 4 – Distortions | JSON array of distortion keys (see `/api/journal/cbt-guide/`) |
+| `evidence_for` | 5a – Evidence For | Facts supporting the thought |
+| `evidence_against` | 5b – Evidence Against | Facts challenging the thought |
+| `balanced_thought` | 6 – Balanced Thought | Reframed, realistic alternative |
+| `emotion_intensity_after` | 7 – Emotion Intensity | Integer 0–100 after reframing |
+| `behavioral_response` | 8 – Action | One concrete step to take |
+
+**Read-only computed fields returned in the response:**
+- `has_thought_record` — `true` when situation + automatic_thought are present
+- `cognitive_distortions_display` — distortion keys expanded to human labels
+- `emotion_shift` — `intensity_after - intensity_before` (negative means improvement)
+
+See `GET /api/journal/cbt-guide/` for the full step-by-step guide and valid distortion keys.
+"""
+
+
 @extend_schema_view(
     list=extend_schema(
         tags=['Journal'],
         summary='List journal entries',
-        description='Returns journal entries for the authenticated user with optional filters.',
+        description=(
+            'Returns journal entries for the authenticated user with optional filters.\n\n'
+            'Filter `?has_thought_record=true` to return only CBT thought-record entries.\n\n'
+            + _ENTRY_CBT_DESCRIPTION
+        ),
         parameters=[JournalEntryFilterSerializer],
         responses={200: JournalEntrySerializer(many=True)},
     ),
     create=extend_schema(
         tags=['Journal'],
         summary='Create journal entry',
+        description=(
+            'Creates a new journal entry for the authenticated user.\n\n'
+            + _ENTRY_CBT_DESCRIPTION
+        ),
         request=JournalEntrySerializer,
         responses={201: JournalEntrySerializer},
     ),
     retrieve=extend_schema(
         tags=['Journal'],
         summary='Get journal entry',
+        description='Returns a single journal entry. Includes all CBT thought-record fields if populated.',
         responses={200: JournalEntrySerializer},
     ),
     partial_update=extend_schema(
         tags=['Journal'],
         summary='Update journal entry',
+        description=(
+            'Partially update a journal entry. You can add or fill in CBT '
+            'thought-record fields at any time after the initial save.\n\n'
+            + _ENTRY_CBT_DESCRIPTION
+        ),
         request=JournalEntrySerializer,
         responses={200: JournalEntrySerializer},
     ),
@@ -119,6 +159,12 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
         end_date = filters.get('end_date')
         if end_date:
             queryset = queryset.filter(entry_date__lte=end_date)
+
+        if 'has_thought_record' in filters:
+            if filters['has_thought_record']:
+                queryset = queryset.exclude(situation='').exclude(automatic_thought='')
+            else:
+                queryset = queryset.filter(Q(situation='') | Q(automatic_thought=''))
 
         return queryset.distinct()
 
@@ -174,7 +220,15 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
 @extend_schema(
     tags=['Journal'],
     summary='Get journaling insights',
-    description='Returns consistency, reread behavior, mood distribution, and top tags.',
+    description=(
+        'Returns aggregated analytics for the authenticated user.\n\n'
+        '**Standard analytics:** entry counts, current and longest streaks, '
+        'average word count, reread totals and ratio, mood distribution, top tags.\n\n'
+        '**CBT analytics:** `thought_records_total` — how many entries have a thought record; '
+        '`avg_emotion_shift` — average change in emotion intensity across completed thought records '
+        '(negative = improvement); `top_distortions` — the five most frequently identified '
+        'cognitive distortions across all entries.'
+    ),
     responses={200: JournalInsightsSerializer},
 )
 class JournalInsightsView(APIView):
@@ -227,6 +281,31 @@ class JournalInsightsView(APIView):
 
         last_entry_at = entries.order_by('-created_at').values_list('created_at', flat=True).first()
 
+        # ── CBT analytics ───────────────────────────────────────────────────────────────
+        thought_records = entries.exclude(situation='').exclude(automatic_thought='')
+        thought_records_total = thought_records.count()
+
+        # Average emotion shift (intensity_after - intensity_before) across thought records
+        shifts = [
+            (row['emotion_intensity_after'] - row['emotion_intensity_before'])
+            for row in thought_records.filter(
+                emotion_intensity_before__isnull=False,
+                emotion_intensity_after__isnull=False,
+            ).values('emotion_intensity_before', 'emotion_intensity_after')
+        ]
+        avg_emotion_shift = round(_stats.mean(shifts), 2) if shifts else None
+
+        # Count how many times each distortion key appears across all thought records
+        distortion_counter: dict = {}
+        for row in thought_records.values_list('cognitive_distortions', flat=True):
+            for key in (row or []):
+                distortion_counter[key] = distortion_counter.get(key, 0) + 1
+        distortion_label_map = dict(JournalEntry.COGNITIVE_DISTORTIONS)
+        top_distortions = [
+            {'key': k, 'label': distortion_label_map.get(k, k), 'count': v}
+            for k, v in sorted(distortion_counter.items(), key=lambda x: -x[1])
+        ][:5]
+
         payload = {
             'total_entries': total_entries,
             'entries_last_7_days': entries_last_7_days,
@@ -241,6 +320,9 @@ class JournalInsightsView(APIView):
             'mood_distribution': mood_distribution,
             'top_tags': top_tags,
             'last_entry_at': last_entry_at,
+            'thought_records_total': thought_records_total,
+            'avg_emotion_shift': avg_emotion_shift,
+            'top_distortions': top_distortions,
         }
 
         serializer = JournalInsightsSerializer(data=payload)
@@ -288,4 +370,220 @@ class RandomJournalPromptView(APIView):
             )
 
         serializer = JournalPromptSerializer(prompt)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ── CBT Guide ─────────────────────────────────────────────────────────────────
+
+_CBT_GUIDE_PAYLOAD = {
+    'title': 'CBT Thought-Record Journaling Guide',
+    'summary': (
+        'A CBT thought record is a structured technique from Cognitive Behavioral Therapy that '
+        'helps you identify and reframe unhelpful automatic thoughts. '
+        'Work through the 8 steps below each time you notice a strong negative emotion. '
+        'You do NOT need to fill in every field — even completing steps 1-3 is beneficial.'
+    ),
+    'steps': [
+        {
+            'step': 1,
+            'title': 'Describe the Situation',
+            'field': 'situation',
+            'instruction': (
+                'Write a brief, factual description of where you were, what you were doing, '
+                'and who was present when the upsetting feeling began. '
+                'Stick to observable facts — no interpretations yet.'
+            ),
+            'tip': 'Example: "I was in a team meeting and my manager pointed out an error in my report."',
+        },
+        {
+            'step': 2,
+            'title': 'Record the Automatic Thought',
+            'field': 'automatic_thought',
+            'instruction': (
+                'Write the exact thought that flashed through your mind in that moment — '
+                'word for word, as if you could screenshot your inner dialogue. '
+                'Automatic thoughts are often absolute, harsh, or catastrophic.'
+            ),
+            'tip': 'Example: "Everyone thinks I am incompetent. I am going to get fired."',
+        },
+        {
+            'step': 3,
+            'title': 'Rate Your Emotion Intensity (Before)',
+            'field': 'emotion_intensity_before',
+            'instruction': (
+                'On a scale from 0 to 100, how intense is the emotion RIGHT NOW as you write this? '
+                '0 = no distress at all, 50 = moderate, 100 = the worst you have ever felt. '
+                'You can name the emotion in your main content field (e.g. "anxiety 70/100").'
+            ),
+            'tip': 'Being specific about intensity helps you measure real change at step 7.',
+        },
+        {
+            'step': 4,
+            'title': 'Identify Cognitive Distortions',
+            'field': 'cognitive_distortions',
+            'instruction': (
+                'Look at your automatic thought and check which thinking traps it falls into. '
+                'Send an array of keys from the list below. '
+                'It is normal to have more than one.'
+            ),
+            'tip': 'Example: ["catastrophizing", "mind_reading", "fortune_telling"]',
+        },
+        {
+            'step': 5,
+            'title': 'Examine the Evidence',
+            'field': 'evidence_for / evidence_against',
+            'instruction': (
+                'In `evidence_for`, list only hard facts (not feelings or assumptions) '
+                'that genuinely support your automatic thought. '
+                'In `evidence_against`, list facts that challenge or contradict it. '
+                'Be as objective as a scientist — both fields count.'
+            ),
+            'tip': (
+                'Evidence FOR: "My manager did point out a specific error." '
+                'Evidence AGAINST: "I have received positive feedback on the last three reports. '
+                'My manager also said the overall analysis was solid."'
+            ),
+        },
+        {
+            'step': 6,
+            'title': 'Write a Balanced Thought',
+            'field': 'balanced_thought',
+            'instruction': (
+                'Using the evidence from both sides, write a new thought that is realistic '
+                'and compassionate — not falsely positive, just more accurate. '
+                'A balanced thought acknowledges the difficulty while keeping perspective.'
+            ),
+            'tip': (
+                'Example: "I made an error today. That is uncomfortable, but one mistake does not '
+                'define my competence. My track record shows I am generally reliable, '
+                'and I can fix this."'
+            ),
+        },
+        {
+            'step': 7,
+            'title': 'Re-rate Your Emotion Intensity (After)',
+            'field': 'emotion_intensity_after',
+            'instruction': (
+                'Now that you have written the balanced thought, rate how intense '
+                'the same emotion feels on the same 0-100 scale. '
+                'The `emotion_shift` field in the response will show the difference automatically '
+                '(a negative number means your distress decreased).'
+            ),
+            'tip': 'Even a small decrease (e.g. 70 → 55) shows the technique is working.',
+        },
+        {
+            'step': 8,
+            'title': 'Plan a Behavioral Response',
+            'field': 'behavioral_response',
+            'instruction': (
+                'Name ONE small, concrete action you will take based on your balanced perspective. '
+                'This closes the loop between thought and behavior — a core CBT principle.'
+            ),
+            'tip': (
+                'Example: "I will review the report, send a correction to my manager today, '
+                'and let myself move on."'
+            ),
+        },
+    ],
+    'cognitive_distortions': [
+        {
+            'key': 'all_or_nothing',
+            'label': 'All-or-Nothing Thinking',
+            'description': 'Seeing things in black and white with no middle ground.',
+            'example': '"If I am not perfect, I am a total failure."',
+        },
+        {
+            'key': 'overgeneralization',
+            'label': 'Overgeneralization',
+            'description': 'Drawing a sweeping conclusion from a single event.',
+            'example': '"I failed this once, so I always fail."',
+        },
+        {
+            'key': 'mental_filter',
+            'label': 'Mental Filter',
+            'description': 'Focusing exclusively on one negative detail while ignoring positives.',
+            'example': '"Someone criticized one thing, so the whole thing was a disaster."',
+        },
+        {
+            'key': 'disqualifying_positive',
+            'label': 'Disqualifying the Positive',
+            'description': 'Dismissing positive experiences as not counting.',
+            'example': '"They only said that to be nice — it does not really count."',
+        },
+        {
+            'key': 'mind_reading',
+            'label': 'Mind Reading',
+            'description': 'Assuming you know what others think without evidence.',
+            'example': '"They are definitely judging me right now."',
+        },
+        {
+            'key': 'fortune_telling',
+            'label': 'Fortune Telling',
+            'description': 'Predicting a negative outcome as though it is already certain.',
+            'example': '"I know I am going to mess this up."',
+        },
+        {
+            'key': 'catastrophizing',
+            'label': 'Catastrophizing',
+            'description': 'Magnifying problems or imagining worst-case scenarios.',
+            'example': '"If I make one mistake, my career is over."',
+        },
+        {
+            'key': 'emotional_reasoning',
+            'label': 'Emotional Reasoning',
+            'description': 'Treating feelings as facts.',
+            'example': '"I feel stupid, therefore I must be stupid."',
+        },
+        {
+            'key': 'should_statements',
+            'label': '"Should" Statements',
+            'description': 'Rigid rules about how you or others must behave.',
+            'example': '"I should always be productive. I must never disappoint anyone."',
+        },
+        {
+            'key': 'labeling',
+            'label': 'Labeling',
+            'description': 'Attaching a global negative label rather than describing a specific behavior.',
+            'example': '"I am a loser" instead of "I did not perform well on that task."',
+        },
+        {
+            'key': 'personalization',
+            'label': 'Personalization',
+            'description': 'Blaming yourself for events outside your control.',
+            'example': '"My friend is upset — I must have done something wrong."',
+        },
+        {
+            'key': 'jumping_to_conclusions',
+            'label': 'Jumping to Conclusions',
+            'description': 'Reaching negative conclusions without sufficient evidence.',
+            'example': '"They did not reply instantly — they must be angry with me."',
+        },
+    ],
+    'valid_distortion_keys': [
+        'all_or_nothing', 'overgeneralization', 'mental_filter',
+        'disqualifying_positive', 'mind_reading', 'fortune_telling',
+        'catastrophizing', 'emotional_reasoning', 'should_statements',
+        'labeling', 'personalization', 'jumping_to_conclusions',
+    ],
+}
+
+
+@extend_schema(
+    tags=['Journal'],
+    summary='CBT journaling guide',
+    description=(
+        'Returns a complete, human-readable guide to CBT thought-record journaling: '
+        'what each field means, step-by-step instructions, practical examples, '
+        'and the full list of valid cognitive distortion keys accepted by the API. '
+        'Designed to be displayed in an in-app "Help / How it works" screen.'
+    ),
+    responses={200: CBTGuideSerializer},
+)
+class CBTGuideView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from journal.serializers import CBTGuideSerializer as _S
+        serializer = _S(data=_CBT_GUIDE_PAYLOAD)
+        serializer.is_valid(raise_exception=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

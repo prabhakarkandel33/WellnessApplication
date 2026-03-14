@@ -11,6 +11,8 @@ class JournalEntryFilterSerializer(serializers.Serializer):
     tag = serializers.CharField(required=False, allow_blank=True)
     start_date = serializers.DateField(required=False)
     end_date = serializers.DateField(required=False)
+    # CBT filter: pass true to return only entries with a thought record filled in
+    has_thought_record = serializers.BooleanField(required=False)
 
     def validate(self, attrs):
         start_date = attrs.get('start_date')
@@ -26,6 +28,11 @@ class JournalTagSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'slug']
 
 
+# Keys that are valid cognitive distortion identifiers.
+_DISTORTION_KEYS = {key for key, _ in JournalEntry.COGNITIVE_DISTORTIONS}
+_DISTORTION_LABEL = {key: label for key, label in JournalEntry.COGNITIVE_DISTORTIONS}
+
+
 class JournalEntrySerializer(serializers.ModelSerializer):
     tags = JournalTagSerializer(many=True, read_only=True)
     tag_names = serializers.ListField(
@@ -36,6 +43,10 @@ class JournalEntrySerializer(serializers.ModelSerializer):
     )
     mood_label = serializers.SerializerMethodField()
     excerpt = serializers.SerializerMethodField()
+    # CBT computed helpers (read-only)
+    has_thought_record = serializers.SerializerMethodField()
+    cognitive_distortions_display = serializers.SerializerMethodField()
+    emotion_shift = serializers.SerializerMethodField()
 
     class Meta:
         model = JournalEntry
@@ -54,6 +65,20 @@ class JournalEntrySerializer(serializers.ModelSerializer):
             'word_count',
             'read_count',
             'last_read_at',
+            # ── CBT Thought-Record fields ──
+            'situation',
+            'automatic_thought',
+            'emotion_intensity_before',
+            'cognitive_distortions',
+            'cognitive_distortions_display',
+            'evidence_for',
+            'evidence_against',
+            'balanced_thought',
+            'emotion_intensity_after',
+            'behavioral_response',
+            # ── computed ──
+            'has_thought_record',
+            'emotion_shift',
             'created_at',
             'updated_at',
         ]
@@ -65,6 +90,9 @@ class JournalEntrySerializer(serializers.ModelSerializer):
             'word_count',
             'read_count',
             'last_read_at',
+            'has_thought_record',
+            'cognitive_distortions_display',
+            'emotion_shift',
             'created_at',
             'updated_at',
         ]
@@ -77,9 +105,37 @@ class JournalEntrySerializer(serializers.ModelSerializer):
             return obj.content
         return f"{obj.content[:157]}..."
 
+    def get_has_thought_record(self, obj):
+        """True when at least situation and automatic_thought are filled in."""
+        return bool(obj.situation.strip() and obj.automatic_thought.strip())
+
+    def get_cognitive_distortions_display(self, obj):
+        """Translate distortion keys to human-readable labels."""
+        return [
+            {'key': k, 'label': _DISTORTION_LABEL.get(k, k)}
+            for k in (obj.cognitive_distortions or [])
+        ]
+
+    def get_emotion_shift(self, obj):
+        """Difference in emotion intensity after vs before reframing (negative = improved)."""
+        if obj.emotion_intensity_before is not None and obj.emotion_intensity_after is not None:
+            return obj.emotion_intensity_after - obj.emotion_intensity_before
+        return None
+
     def validate_content(self, value):
         if len(value.strip()) < 10:
             raise serializers.ValidationError('Please provide at least 10 characters in your journal entry.')
+        return value
+
+    def validate_cognitive_distortions(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError('cognitive_distortions must be a list of distortion keys.')
+        invalid = [k for k in value if k not in _DISTORTION_KEYS]
+        if invalid:
+            raise serializers.ValidationError(
+                f'Unknown cognitive distortion keys: {invalid}. '
+                f'Valid keys: {sorted(_DISTORTION_KEYS)}'
+            )
         return value
 
     def validate_tag_names(self, value):
@@ -172,3 +228,32 @@ class JournalInsightsSerializer(serializers.Serializer):
     mood_distribution = MoodDistributionSerializer(many=True)
     top_tags = TopTagSerializer(many=True)
     last_entry_at = serializers.DateTimeField(allow_null=True)
+    # CBT analytics
+    thought_records_total = serializers.IntegerField()
+    avg_emotion_shift = serializers.FloatField(allow_null=True)
+    top_distortions = serializers.ListField(child=serializers.DictField())
+
+
+# ── CBT Guide serializers ──────────────────────────────────────────────────────
+
+class CognitivDistortionSerializer(serializers.Serializer):
+    key = serializers.CharField()
+    label = serializers.CharField()
+    description = serializers.CharField()
+    example = serializers.CharField()
+
+
+class CBTStepSerializer(serializers.Serializer):
+    step = serializers.IntegerField()
+    title = serializers.CharField()
+    field = serializers.CharField()
+    instruction = serializers.CharField()
+    tip = serializers.CharField()
+
+
+class CBTGuideSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    summary = serializers.CharField()
+    steps = CBTStepSerializer(many=True)
+    cognitive_distortions = CognitivDistortionSerializer(many=True)
+    valid_distortion_keys = serializers.ListField(child=serializers.CharField())
