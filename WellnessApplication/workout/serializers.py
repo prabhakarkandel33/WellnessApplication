@@ -95,10 +95,6 @@ class RecommendedProgramsResponseSerializer(serializers.Serializer):
 class ActivityCompletionRequestSerializer(serializers.Serializer):
     """Request body for completing an activity"""
     completed = serializers.BooleanField(default=True, help_text="Whether the activity was completed")
-    motivation = serializers.IntegerField(
-        min_value=1, max_value=5, required=True,
-        help_text="Your motivation level after completing the activity (1-5)"
-    )
 
 
 class ActivityCompletionResponseSerializer(serializers.Serializer):
@@ -109,7 +105,7 @@ class ActivityCompletionResponseSerializer(serializers.Serializer):
     duration_minutes = serializers.IntegerField()
     duration_seconds = serializers.IntegerField()
     completed = serializers.BooleanField()
-    motivation = serializers.IntegerField()
+    motivation = serializers.IntegerField(required=False, allow_null=True)
     engagement_contribution = serializers.FloatField()
     program_status = serializers.DictField(required=False, allow_null=True)
     user_stats = serializers.DictField()
@@ -238,6 +234,27 @@ class ActivityFeedbackBatchRequestSerializer(serializers.Serializer):
     overall_session_rating = serializers.IntegerField(
         min_value=1, max_value=5,
         help_text="Overall session satisfaction (1-5)"
+    )
+    notes = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True,
+        help_text="Optional session notes"
+    )
+
+
+class ProgramFeedbackRequestSerializer(serializers.Serializer):
+    """Request body for program-level feedback (applies to all program activities)."""
+    overall_session_rating = serializers.IntegerField(
+        min_value=1, max_value=5,
+        help_text="Overall session satisfaction (1-5)"
+    )
+    completed = serializers.BooleanField(
+        default=True,
+        help_text="Mark all activities in the program as completed or not completed"
+    )
+    motivation = serializers.IntegerField(
+        min_value=1, max_value=5,
+        required=False,
+        help_text="Motivation to apply to all activities. Defaults to overall_session_rating"
     )
     notes = serializers.CharField(
         max_length=1000, required=False, allow_blank=True,

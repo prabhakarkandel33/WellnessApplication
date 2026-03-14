@@ -27,6 +27,7 @@ from workout.serializers import (
     ActivityCompletionResponseSerializer,
     ActivityFeedbackBatchRequestSerializer,
     ActivityFeedbackBatchResponseSerializer,
+    ProgramFeedbackRequestSerializer,
     ProgramSerializer,
 )
 
@@ -1196,11 +1197,58 @@ class RecommendedActivitiesView(APIView):
             return quantity * 60
         return quantity
 
+    def _estimate_repetition_seconds(self, low_reps, high_reps=None):
+        """Estimate step duration from repetition counts when no timer is provided."""
+        low = max(1, int(low_reps))
+        high = max(low, int(high_reps)) if high_reps is not None else low
+        average_reps = round((low + high) / 2)
+        # Controlled bodyweight tempo: around 4 seconds per repetition.
+        return min(180, max(20, average_reps * 4))
+
     def _compact_whitespace(self, text):
         return re.sub(r'\s+', ' ', str(text or '')).strip()
 
+    def _strip_duration_from_name(self, name):
+        """Remove duration markers from activity names (duration stays in dedicated fields)."""
+        cleaned = self._compact_whitespace(name)
+        if not cleaned:
+            return cleaned
+
+        # Examples: "Brisk Walking: 20 Minutes", "Walking - 10 min (Slow Pace)"
+        cleaned = re.sub(
+            r'\s*[:\-]\s*\d+\s*(?:minutes?|mins?|min)\b',
+            '',
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        # Examples: "Child's Pose Breathing (3 min)"
+        cleaned = re.sub(
+            r'\s*\(\s*\d+\s*(?:minutes?|mins?|min)\s*\)',
+            '',
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        # Example fallback: "Brisk Walking 20 Minutes"
+        cleaned = re.sub(
+            r'\s+\d+\s*(?:minutes?|mins?|min)\b\s*$',
+            '',
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        # Examples: "5-Min Gentle Stretching", "10 minute walking"
+        cleaned = re.sub(
+            r'^\s*\d+\s*[-]?\s*(?:minutes?|mins?|min)\b\s*',
+            '',
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+        cleaned = self._compact_whitespace(cleaned).strip(':- ')
+        return cleaned or self._compact_whitespace(name)
+
     def _build_step_name(self, parent_name, step_text, prefix=None, round_number=None):
         """Create a short activity name for an extracted step."""
+        parent_name = self._strip_duration_from_name(parent_name)
         label = self._compact_whitespace(step_text)
         if '(' in label:
             label = label.split('(', 1)[0].strip()
@@ -1215,10 +1263,27 @@ class RecommendedActivitiesView(APIView):
             name = f"{name} (Round {round_number})"
         return name[:200]
 
-    def _extract_timed_units(self, parent_name, instructions):
-        """Extract timed instruction lines into standalone activity units."""
+    def _extract_timed_units(self, parent_name, instructions, allow_rep_steps=False):
+        """Extract timed or repetition-based instruction lines into standalone units."""
         timed_units = []
         repeat_count = 1
+
+        def append_step(step_name, description, seconds, force_single=False):
+            rounds = 1 if force_single else (repeat_count if repeat_count > 1 else 1)
+            duration_seconds = max(1, int(seconds))
+
+            for idx in range(rounds):
+                round_number = idx + 1 if rounds > 1 else None
+                line_description = description
+                if round_number is not None:
+                    line_description = f"{description} (Round {round_number} of {rounds})"
+
+                timed_units.append({
+                    'activity_name': self._build_step_name(parent_name, step_name, round_number=round_number),
+                    'description': line_description,
+                    'duration_seconds': duration_seconds,
+                    'instructions': [line_description],
+                })
 
         timed_step_pattern = re.compile(
             r'^(?:[-*]\s*)?(?:\d+[\.)]\s*)?(?P<value>\d+)\s*'
@@ -1231,6 +1296,27 @@ class RecommendedActivitiesView(APIView):
             re.IGNORECASE,
         )
         repeat_pattern = re.compile(r'repeat\s+(?P<count>\d+)\s+times', re.IGNORECASE)
+        movement_pattern = re.compile(
+            r'^(?:[-*]\s*)?(?:\d+[\.)]\s*)?(?P<label>[A-Za-z][A-Za-z0-9\s\'\-/]+?)\s*:\s*(?P<details>.+)$',
+            re.IGNORECASE,
+        )
+        repetition_pattern = re.compile(
+            r'(?P<low>\d+)\s*(?:-\s*(?P<high>\d+))?\s*(?:repetitions?|reps?)\b',
+            re.IGNORECASE,
+        )
+        hold_pattern = re.compile(
+            r'hold\s+(?:for\s+)?(?P<value>\d+)\s*(?P<unit>seconds?|secs?|minutes?|mins?)\b',
+            re.IGNORECASE,
+        )
+        duration_pattern = re.compile(
+            r'(?P<value>\d+)\s*(?P<unit>seconds?|secs?|minutes?|mins?)\b',
+            re.IGNORECASE,
+        )
+        rest_pattern = re.compile(
+            r'^(?:[-*]\s*)?(?:\d+[\.)]\s*)?rest(?:\s+for)?\s+(?P<value>\d+)\s*'
+            r'(?P<unit>seconds?|secs?|minutes?|mins?)\b(?P<details>.*)$',
+            re.IGNORECASE,
+        )
 
         for raw_line in instructions:
             line = self._compact_whitespace(raw_line)
@@ -1254,13 +1340,7 @@ class RecommendedActivitiesView(APIView):
                     labeled_match.group('value'),
                     labeled_match.group('unit'),
                 )
-
-                timed_units.append({
-                    'activity_name': self._build_step_name(parent_name, details or label, prefix=label),
-                    'description': details or label,
-                    'duration_seconds': seconds,
-                    'instructions': [details or label],
-                })
+                append_step(label, details or label, seconds, force_single=True)
                 repeat_count = 1
                 continue
 
@@ -1271,21 +1351,56 @@ class RecommendedActivitiesView(APIView):
                     timed_match.group('unit'),
                 )
                 step = self._compact_whitespace(timed_match.group('step'))
-                rounds = repeat_count if repeat_count > 1 else 1
-
-                for idx in range(rounds):
-                    round_number = idx + 1 if rounds > 1 else None
-                    description = step
-                    if round_number is not None:
-                        description = f"{step} (Round {round_number} of {rounds})"
-
-                    timed_units.append({
-                        'activity_name': self._build_step_name(parent_name, step, round_number=round_number),
-                        'description': description,
-                        'duration_seconds': seconds,
-                        'instructions': [description],
-                    })
+                append_step(step, step, seconds)
                 continue
+
+            if allow_rep_steps:
+                movement_match = movement_pattern.match(line)
+                if movement_match:
+                    label = self._compact_whitespace(movement_match.group('label')).rstrip(':')
+                    details = self._compact_whitespace(movement_match.group('details'))
+
+                    seconds = None
+                    hold_match = hold_pattern.search(details)
+                    if hold_match:
+                        seconds = self._duration_parts_to_seconds(
+                            hold_match.group('value'),
+                            hold_match.group('unit'),
+                        )
+
+                    if seconds is None:
+                        reps_match = repetition_pattern.search(details)
+                        if reps_match:
+                            seconds = self._estimate_repetition_seconds(
+                                reps_match.group('low'),
+                                reps_match.group('high'),
+                            )
+
+                    if seconds is None and label.lower().startswith('rest'):
+                        rest_duration_match = duration_pattern.search(details)
+                        if rest_duration_match:
+                            seconds = self._duration_parts_to_seconds(
+                                rest_duration_match.group('value'),
+                                rest_duration_match.group('unit'),
+                            )
+
+                    if seconds is not None:
+                        append_step(label, f"{label}: {details}", seconds)
+                        continue
+
+                rest_match = rest_pattern.match(line)
+                if rest_match:
+                    rest_text = f"Rest for {rest_match.group('value')} {rest_match.group('unit')}"
+                    rest_details = self._compact_whitespace(rest_match.group('details'))
+                    if rest_details:
+                        rest_text = f"{rest_text} {rest_details}".strip()
+
+                    seconds = self._duration_parts_to_seconds(
+                        rest_match.group('value'),
+                        rest_match.group('unit'),
+                    )
+                    append_step('Rest', rest_text, seconds)
+                    continue
 
             line_lower = line.lower()
             if 'cool-down' in line_lower or 'cool down' in line_lower or line_lower.startswith('total:'):
@@ -1299,11 +1414,16 @@ class RecommendedActivitiesView(APIView):
         if not isinstance(instructions, list):
             instructions = [str(instructions)] if instructions else []
 
-        parent_name = self._compact_whitespace(item.get('name', 'Unnamed Activity')) or 'Unnamed Activity'
+        parent_name = self._strip_duration_from_name(item.get('name', 'Unnamed Activity')) or 'Unnamed Activity'
         parent_description = self._compact_whitespace(item.get('description', ''))
         default_seconds = self._safe_duration_seconds_from_minutes(item.get('duration'))
+        activity_type = self._normalize_activity_type(item.get('type'))
 
-        timed_units = self._extract_timed_units(parent_name, instructions)
+        timed_units = self._extract_timed_units(
+            parent_name,
+            instructions,
+            allow_rep_steps=activity_type == 'exercise',
+        )
         if not timed_units:
             return [{
                 'activity_name': parent_name,
@@ -1512,7 +1632,7 @@ class CompleteActivityView(APIView):
     """
     POST /workout/activity/{activity_id}/complete/
     
-    Records user's activity completion with motivation feedback.
+    Records user's activity completion.
     Calculates engagement contribution for RL training.
     """
     permission_classes = [IsAuthenticated]
@@ -1520,25 +1640,21 @@ class CompleteActivityView(APIView):
     @extend_schema(
         summary="Complete an Activity",
         description="""
-        Mark an activity as completed and provide motivation feedback.
+        Mark an activity as completed.
         
         **What happens:**
         1. Activity is marked as completed with timestamp
-        2. Your motivation level is recorded
-        3. Engagement contribution is automatically calculated
-        4. Your user engagement score is updated
+        2. Engagement contribution is automatically calculated
+        3. Program completion progress is refreshed
         
         **Required Fields:**
         - `completed` (boolean): Whether you completed the activity
-        - `motivation` (1-5): Your motivation level after the activity
         
         **Calculated Metrics:**
         - `engagement_contribution`: 0-1 score used for RL training
         
-        **Tips:**
-        - Higher motivation (4-5) signals the activity worked well for you
-        - Lower motivation (1-2) tells the RL agent to adjust future recommendations
-        - Be consistent with your ratings for better personalization
+        **Tip:**
+        - Use program or batch feedback endpoints to submit session-level motivation/ratings.
         """,
         parameters=[
             OpenApiParameter(
@@ -1556,18 +1672,9 @@ class CompleteActivityView(APIView):
         },
         examples=[
             OpenApiExample(
-                'High Motivation',
+                'Completed Activity',
                 value={
-                    "completed": True,
-                    "motivation": 5
-                },
-                request_only=True
-            ),
-            OpenApiExample(
-                'Low Motivation',
-                value={
-                    "completed": True,
-                    "motivation": 2
+                    "completed": True
                 },
                 request_only=True
             )
@@ -1582,7 +1689,6 @@ class CompleteActivityView(APIView):
             
             # Update activity with completion data
             activity.completed = request.data.get('completed', False)
-            activity.motivation_after = request.data.get('motivation', 3)
             
             if activity.completed:
                 activity.completion_date = timezone.now()
@@ -1742,6 +1848,138 @@ class ActivityFeedbackBatchView(APIView):
             )
         ]
     )
+    def _process_feedback(self, user, activities_data, overall_rating, session_notes):
+        """Persist activity feedback, create session metrics, and train RL once per session."""
+        if not activities_data:
+            raise ValueError("No activities provided")
+
+        overall_rating = safe_int_or_default(overall_rating, 3, min_value=1, max_value=5)
+        session_notes = str(session_notes or "")
+
+        completed_count = 0
+        activity_ids = []
+        affected_program_ids = set()
+
+        for activity_data in activities_data:
+            activity_id = activity_data.get('activity_id')
+            activity = Activity.objects.get(id=activity_id, user=user)
+
+            activity.completed = bool(activity_data.get('completed', False))
+            activity.motivation_after = safe_int_or_default(
+                activity_data.get('motivation', overall_rating),
+                overall_rating,
+                min_value=1,
+                max_value=5,
+            )
+
+            if activity.completed:
+                activity.completion_date = timezone.now()
+                completed_count += 1
+
+            activity.save()
+            activity_ids.append(activity.id)
+            if activity.program_id:
+                affected_program_ids.add(activity.program_id)
+
+        program_updates = []
+        for program in Program.objects.filter(user=user, id__in=affected_program_ids):
+            summary = sync_program_completion(program)
+            if summary:
+                program_updates.append(summary)
+
+        session = WorkoutSession.objects.create(
+            user=user,
+            overall_session_rating=overall_rating,
+            session_notes=session_notes,
+        )
+        session.activities.set(activity_ids)
+        session.calculate_metrics()
+        session.save()
+
+        session_engagement = session.engagement_contribution
+
+        segment = self._get_user_segment(user)
+        segment_id = getattr(user, 'segment_label', 4)
+
+        gender = getattr(user, 'gender', 'male')
+        gender_encoded = 0 if gender == 'male' else 1
+
+        diet_mapping = {'vegetarian': 0, 'vegan': 1, 'balanced': 2, 'junk_food': 3, 'keto': 4}
+        diet_type = getattr(user, 'diet_type', 'balanced')
+        diet_encoded = diet_mapping.get(diet_type, 2)
+
+        stress_mapping = {'low': 0, 'moderate': 1, 'high': 2}
+        stress_level = getattr(user, 'stress_level', 'moderate')
+        stress_encoded = stress_mapping.get(stress_level, 1)
+
+        mental_mapping = {'none': 0, 'ptsd': 1, 'depression': 2, 'anxiety': 3, 'bipolar': 4}
+        mental_health = getattr(user, 'mental_health_condition', 'none')
+        mental_encoded = mental_mapping.get(mental_health, 0)
+
+        user_state = {
+            'age': safe_int_or_default(getattr(user, 'age', None), 30, min_value=0),
+            'gender': gender_encoded,
+            'diet_type': diet_encoded,
+            'stress_level': stress_encoded,
+            'mental_health_condition': mental_encoded,
+            'sleep_hours': safe_float_or_default(getattr(user, 'sleep_hours', None), 7.0, min_value=0.0, max_value=9.0),
+            'work_hours_per_week': safe_float_or_default(getattr(user, 'work_hours_per_week', None), 40.0, min_value=0.0, max_value=100.0),
+            'screen_time_per_day': safe_float_or_default(getattr(user, 'screen_time_per_day', None), 6.0, min_value=0.0, max_value=24.0),
+            'social_interaction_score': safe_int_or_default(getattr(user, 'self_reported_social_interaction_score', None), 5, min_value=0, max_value=10),
+            'happiness_score': safe_int_or_default(getattr(user, 'happiness_score', None), 5, min_value=0, max_value=10),
+            'engagement': safe_float_or_default(session_engagement, 0.5, min_value=0.0, max_value=1.0),
+            'motivation': safe_int_or_default(getattr(user, 'motivation_score', None), 3, min_value=1, max_value=5),
+            # RL state expects an integer segment id, not label text.
+            'segment': int(segment_id) if segment_id is not None else 4
+        }
+
+        last_action = safe_int_or_default(getattr(user, 'last_action_recommended', None), 5, min_value=0, max_value=5)
+
+        ActivityFeedbackBatchView.rl_agent.update_q_value(
+            user_state, last_action, session.engagement_contribution, user_state
+        )
+        ActivityFeedbackBatchView.rl_agent.decay_epsilon()
+
+        ActivityFeedbackBatchView.rl_model_manager.save_agent(ActivityFeedbackBatchView.rl_agent)
+
+        activity_segment = get_activity_segment_key(segment)
+        next_catalog = ACTIVITIES_BY_SEGMENT.get(activity_segment, {})
+        next_mental = [
+            item for item in next_catalog.get('mental', [])
+            if str(item.get('type', '')).lower() != 'journaling'
+        ]
+        recommendations = ActivityFeedbackBatchView.rl_agent.recommend_activity_modifications(
+            next_catalog.get('physical', []) + next_mental,
+            {}  # Would be populated with real engagement history in production
+        )
+
+        return {
+            "status": "success",
+            "session": {
+                "session_id": session.id,
+                "user": user.username,
+                "activities_count": len(activity_ids),
+                "completed_activities": completed_count,
+                "completion_rate": round(completed_count / max(len(activity_ids), 1), 2),
+                "overall_rating": overall_rating,
+                "session_engagement_contribution": float(session.engagement_contribution)
+            },
+            "metrics": {
+                "completion_rate": session.completion_rate,
+                "avg_motivation": session.avg_motivation_after
+            },
+            "program_updates": program_updates,
+            "rl_training": {
+                "action_trained": int(last_action),
+                "reward_signal": float(session.engagement_contribution),
+                "q_value_updated": True,
+                "epsilon_current": float(ActivityFeedbackBatchView.rl_agent.epsilon),
+                "total_episodes": ActivityFeedbackBatchView.rl_agent.training_history['episodes'],
+                "total_reward": float(ActivityFeedbackBatchView.rl_agent.training_history['total_reward'])
+            },
+            "activity_recommendations": recommendations
+        }
+
     def post(self, request):
         """Process batch feedback and train RL agent"""
         user = request.user
@@ -1750,136 +1988,14 @@ class ActivityFeedbackBatchView(APIView):
             activities_data = request.data.get('activities', [])
             overall_rating = request.data.get('overall_session_rating', 3)
             session_notes = request.data.get('notes', '')
+            payload = self._process_feedback(user, activities_data, overall_rating, session_notes)
+            return Response(payload, status=status.HTTP_201_CREATED)
             
-            # Update individual activities
-            completed_count = 0
-            total_engagement = 0
-            activity_ids = []
-            affected_program_ids = set()
-            
-            for activity_data in activities_data:
-                activity_id = activity_data.get('activity_id')
-                activity = Activity.objects.get(id=activity_id, user=user)
-                
-                activity.completed = activity_data.get('completed', False)
-                activity.motivation_after = activity_data.get('motivation', 3)
-                
-                if activity.completed:
-                    activity.completion_date = timezone.now()
-                    completed_count += 1
-                
-                activity.save()
-                activity_ids.append(activity.id)
-                total_engagement += activity.engagement_contribution
-                if activity.program_id:
-                    affected_program_ids.add(activity.program_id)
-
-            program_updates = []
-            for program in Program.objects.filter(user=user, id__in=affected_program_ids):
-                summary = sync_program_completion(program)
-                if summary:
-                    program_updates.append(summary)
-            
-            # Create session and calculate aggregate metrics.
-            session = WorkoutSession.objects.create(
-                user=user,
-                overall_session_rating=overall_rating,
-                session_notes=session_notes,
-            )
-            session.activities.set(activity_ids)
-            session.calculate_metrics()
-            session.save()
-            
-            # Get engagement contribution for RL training
-            session_engagement = session.engagement_contribution
-            
-            # Train RL agent with session-level feedback
-            segment = self._get_user_segment(user)
-            segment_id = getattr(user, 'segment_label', 4)
-            
-            # Encode categorical fields
-            gender = getattr(user, 'gender', 'male')
-            gender_encoded = 0 if gender == 'male' else 1
-            
-            diet_mapping = {'vegetarian': 0, 'vegan': 1, 'balanced': 2, 'junk_food': 3, 'keto': 4}
-            diet_type = getattr(user, 'diet_type', 'balanced')
-            diet_encoded = diet_mapping.get(diet_type, 2)
-            
-            stress_mapping = {'low': 0, 'moderate': 1, 'high': 2}
-            stress_level = getattr(user, 'stress_level', 'moderate')
-            stress_encoded = stress_mapping.get(stress_level, 1)
-            
-            mental_mapping = {'none': 0, 'ptsd': 1, 'depression': 2, 'anxiety': 3, 'bipolar': 4}
-            mental_health = getattr(user, 'mental_health_condition', 'none')
-            mental_encoded = mental_mapping.get(mental_health, 0)
-            
-            user_state = {
-                'age': safe_int_or_default(getattr(user, 'age', None), 30, min_value=0),
-                'gender': gender_encoded,
-                'diet_type': diet_encoded,
-                'stress_level': stress_encoded,
-                'mental_health_condition': mental_encoded,
-                'sleep_hours': safe_float_or_default(getattr(user, 'sleep_hours', None), 7.0, min_value=0.0, max_value=9.0),
-                'work_hours_per_week': safe_float_or_default(getattr(user, 'work_hours_per_week', None), 40.0, min_value=0.0, max_value=100.0),
-                'screen_time_per_day': safe_float_or_default(getattr(user, 'screen_time_per_day', None), 6.0, min_value=0.0, max_value=24.0),
-                'social_interaction_score': safe_int_or_default(getattr(user, 'self_reported_social_interaction_score', None), 5, min_value=0, max_value=10),
-                'happiness_score': safe_int_or_default(getattr(user, 'happiness_score', None), 5, min_value=0, max_value=10),
-                'engagement': safe_float_or_default(session_engagement, 0.5, min_value=0.0, max_value=1.0),
-                'motivation': safe_int_or_default(getattr(user, 'motivation_score', None), 3, min_value=1, max_value=5),
-                # RL state expects an integer segment id, not label text.
-                'segment': int(segment_id) if segment_id is not None else 4
-            }
-            
-            # Get last recommended action (from request or user's last action)
-            last_action = safe_int_or_default(getattr(user, 'last_action_recommended', None), 5, min_value=0, max_value=5)
-            
-            ActivityFeedbackBatchView.rl_agent.update_q_value(
-                user_state, last_action, session.engagement_contribution, user_state
-            )
-            ActivityFeedbackBatchView.rl_agent.decay_epsilon()
-            
-            # Save updated agent
-            ActivityFeedbackBatchView.rl_model_manager.save_agent(ActivityFeedbackBatchView.rl_agent)
-            
-            # Get activity recommendations for next session
-            activity_segment = get_activity_segment_key(segment)
-            next_catalog = ACTIVITIES_BY_SEGMENT.get(activity_segment, {})
-            next_mental = [
-                item for item in next_catalog.get('mental', [])
-                if str(item.get('type', '')).lower() != 'journaling'
-            ]
-            recommendations = ActivityFeedbackBatchView.rl_agent.recommend_activity_modifications(
-                next_catalog.get('physical', []) + next_mental,
-                {}  # Would be populated with real engagement history in production
-            )
-            
+        except ValueError as exc:
             return Response({
-                "status": "success",
-                "session": {
-                    "session_id": session.id,
-                    "user": user.username,
-                    "activities_count": len(activity_ids),
-                    "completed_activities": completed_count,
-                    "completion_rate": round(completed_count / max(len(activity_ids), 1), 2),
-                    "overall_rating": overall_rating,
-                    "session_engagement_contribution": float(session.engagement_contribution)
-                },
-                "metrics": {
-                    "completion_rate": session.completion_rate,
-                    "avg_motivation": session.avg_motivation_after
-                },
-                "program_updates": program_updates,
-                "rl_training": {
-                    "action_trained": int(last_action),
-                    "reward_signal": float(session.engagement_contribution),
-                    "q_value_updated": True,
-                    "epsilon_current": float(ActivityFeedbackBatchView.rl_agent.epsilon),
-                    "total_episodes": ActivityFeedbackBatchView.rl_agent.training_history['episodes'],
-                    "total_reward": float(ActivityFeedbackBatchView.rl_agent.training_history['total_reward'])
-                },
-                "activity_recommendations": recommendations
-            }, status=status.HTTP_201_CREATED)
-            
+                "status": "error",
+                "message": str(exc)
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Activity.DoesNotExist:
             return Response({
                 "status": "error",
@@ -1904,3 +2020,109 @@ class ActivityFeedbackBatchView(APIView):
         # Use the segment_label from the ML model prediction
         segment_id = getattr(user, 'segment_label', 4)
         return segment_names.get(segment_id, "Working Professional Sedentary Stable")
+
+
+@extend_schema(tags=['Activity Tracking'])
+class ProgramFeedbackView(ActivityFeedbackBatchView):
+    """
+    POST /workout/programs/{program_id}/feedback/
+
+    Submit one feedback payload for an entire program and train RL at session level.
+    """
+
+    @extend_schema(
+        summary="Submit Program Feedback (Single Call RL Training)",
+        description="""
+        Submit one feedback payload for a whole program without listing each activity ID.
+
+        **What this endpoint does:**
+        1. Expands `program_id` into all current activities in that program
+        2. Applies `completed` + `motivation` to each activity
+        3. Creates a single WorkoutSession
+        4. Trains RL once using session-level reward
+
+        This is useful when your client treats the program as one workout session.
+        """,
+        parameters=[
+            OpenApiParameter(
+                name='program_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description='Program ID to submit feedback for',
+            )
+        ],
+        request=ProgramFeedbackRequestSerializer,
+        responses={
+            201: ActivityFeedbackBatchResponseSerializer,
+            400: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+            500: OpenApiTypes.OBJECT,
+        },
+        examples=[
+            OpenApiExample(
+                'Program Completed',
+                value={
+                    "completed": True,
+                    "motivation": 4,
+                    "overall_session_rating": 5,
+                    "notes": "Completed the whole program in one session"
+                },
+                request_only=True
+            )
+        ]
+    )
+    def post(self, request, program_id):
+        user = request.user
+
+        try:
+            program = Program.objects.filter(user=user, id=program_id).prefetch_related('activities').first()
+            if not program:
+                return Response({
+                    "status": "error",
+                    "message": "Program not found"
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            activities = list(program.activities.all())
+            if not activities:
+                return Response({
+                    "status": "error",
+                    "message": "No activities found for this program"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            overall_rating = request.data.get('overall_session_rating', 3)
+            session_notes = request.data.get('notes', '')
+            completed = bool(request.data.get('completed', True))
+            motivation = safe_int_or_default(
+                request.data.get('motivation', overall_rating),
+                overall_rating,
+                min_value=1,
+                max_value=5,
+            )
+
+            activities_data = [
+                {
+                    'activity_id': activity.id,
+                    'completed': completed,
+                    'motivation': motivation,
+                }
+                for activity in activities
+            ]
+
+            payload = self._process_feedback(user, activities_data, overall_rating, session_notes)
+            return Response(payload, status=status.HTTP_201_CREATED)
+
+        except ValueError as exc:
+            return Response({
+                "status": "error",
+                "message": str(exc)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Activity.DoesNotExist:
+            return Response({
+                "status": "error",
+                "message": "One or more activities not found"
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                "status": "error",
+                "message": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
