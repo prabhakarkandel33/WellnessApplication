@@ -122,9 +122,7 @@ GET /api/statistics/?period=custom&start_date=2026-01-01T00:00:00Z&end_date=2026
   },
   
   "goal_progress": {
-    "workout_goal_days_per_week": 5,
-    "actual_days_per_week": 4.3,
-    "goal_achievement_rate": 86.0,
+    "average_activities_per_week": 4.3,
     "total_workouts_lifetime": 120,
     "total_meditations_lifetime": 85
   },
@@ -183,9 +181,7 @@ Arrays of daily data points for creating graphs:
 - **well_balanced_activities**: Count with difficulty rating 2-3
 
 ### Goal Progress
-- **workout_goal_days_per_week**: User's target days per week
-- **actual_days_per_week**: Actual average days per week in period
-- **goal_achievement_rate**: Percentage of goal achieved
+- **average_activities_per_week**: Average completed activities per week in selected period
 - **total_workouts_lifetime**: All-time workout count
 - **total_meditations_lifetime**: All-time meditation count
 
@@ -375,7 +371,7 @@ curl -X GET "http://localhost:8000/api/statistics/?period=7days" \
 2. **Progressive Loading**: Load overview first, then detailed charts
 3. **Default to 30 Days**: Most users care about recent trends
 4. **Visualize Streaks**: Highlight current streak prominently in UI
-5. **Goal Progress**: Show progress bars for goal achievement
+5. **Goal Progress**: Show progress bars for weekly consistency and lifetime totals
 6. **Motivation Trends**: Use line charts to show improvement over time
 7. **Activity Heatmap**: Use daily_activity_count for calendar heatmap visualization
 

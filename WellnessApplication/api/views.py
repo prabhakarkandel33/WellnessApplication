@@ -237,18 +237,11 @@ class UserStatisticsView(APIView):
         }
         
         # 7. GOAL PROGRESS
-        # Compare against user's weekly goal
         days_in_period = (end_date - start_date).days
         weeks_in_period = max(days_in_period / 7, 1)
         
         goal_progress = {
-            'workout_goal_days_per_week': user.workout_goal_days or 0,
-            'actual_days_per_week': round(total_completed / weeks_in_period, 1),
-            'goal_achievement_rate': round(
-                (total_completed / weeks_in_period / (user.workout_goal_days or 1) * 100)
-                if user.workout_goal_days else 0,
-                1
-            ),
+            'average_activities_per_week': round(total_completed / weeks_in_period, 1),
             'total_workouts_lifetime': user.workouts_completed,
             'total_meditations_lifetime': user.meditation_sessions,
         }

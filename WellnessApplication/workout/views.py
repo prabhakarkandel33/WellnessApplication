@@ -21,6 +21,7 @@ from workout.serializers import (
     EngagementFeedbackRequestSerializer,
     EngagementFeedbackResponseSerializer,
     RecommendedProgramsResponseSerializer,
+    ActivitySerializer,
     ActivityCompletionRequestSerializer,
     ActivityCompletionResponseSerializer,
     ActivityFeedbackBatchRequestSerializer,
@@ -41,6 +42,41 @@ SEGMENT_TO_ACTIVITY_KEY = {
 def get_activity_segment_key(segment_name):
     """Map model segment labels to activity-catalog segment keys."""
     return SEGMENT_TO_ACTIVITY_KEY.get(segment_name, "Moderate Anxiety, Moderate Activity")
+
+
+def sync_program_completion(program):
+    """Update program completion state based on contained activities."""
+    if program is None:
+        return None
+
+    total = program.activities.count()
+    done = program.activities.filter(completed=True).count()
+    should_complete = total > 0 and done == total
+
+    updates = []
+    if program.completed != should_complete:
+        program.completed = should_complete
+        updates.append('completed')
+
+    if should_complete and program.completion_date is None:
+        program.completion_date = timezone.now()
+        updates.append('completion_date')
+
+    if (not should_complete) and program.completion_date is not None:
+        program.completion_date = None
+        updates.append('completion_date')
+
+    if updates:
+        program.save(update_fields=updates)
+
+    return {
+        'program_id': program.id,
+        'total_activities': total,
+        'completed_activities': done,
+        'completion_rate': round(done / total, 2) if total else 0.0,
+        'completed': should_complete,
+        'completion_date': program.completion_date.isoformat() if program.completion_date else None,
+    }
 
 @extend_schema(tags=['Workout Programs'])
 class RecommendProgram(APIView):
@@ -372,118 +408,68 @@ class RecommendProgram(APIView):
     @extend_schema(
         summary="Get Personalized Workout Program",
         description="""
-        Returns a complete wellness program tailored to your profile using RL adaptation.
-        
-        The RL agent analyzes your segment (based on anxiety and activity levels) and 
-        selects the optimal program structure, then adapts it based on your engagement history.
-        
-        **Program Components:**
-        - Physical Program: Exercise routines, duration, frequency, intensity
-        - Mental Program: Meditation, journaling, mindfulness activities
-        - Reminders: Suggested notifications and check-ins
-        - RL Adaptation: Dynamic adjustment based on your feedback
-        
-        **How RL Works:**
-        The agent learns from your past engagement to adjust intensity, frequency, 
-        and activity types to maximize your wellness outcomes.
+        Returns persisted physical + mental programs with nested activities.
+
+        This endpoint is the top-level recommendation call and now mirrors
+        `/workout/activity/recommended/` so frontend receives:
+        - Program IDs
+        - Activity IDs
+        - Exact timers (`duration_minutes` and `duration_seconds`)
+        - RL action metadata used for training
         """,
         responses={
-            200: RecommendProgramResponseSerializer,
+            200: RecommendedProgramsResponseSerializer,
             401: OpenApiTypes.OBJECT,
         },
         examples=[
             OpenApiExample(
                 'Successful Program Response',
                 value={
-                    "user_segment": "Moderate Anxiety, Moderate Activity",
-                    "recommendation_type": "rl_adapted_program",
-                    "rl_action": "Maintain Current Plan (MCP)",
+                    "status": "success",
+                    "user_segment": "Working Professional Sedentary Stable",
+                    "activity_segment": "Moderate Anxiety, Moderate Activity",
+                    "rl_action": 3,
+                    "rl_action_name": "Send Motivational Message (SMM)",
+                    "reason": "Time for a balanced routine combining physical and mental wellness",
                     "physical_program": {
-                        "name": "Walk + Bodyweight Training",
-                        "description": "Balanced approach combining cardio and strength",
-                        "exercises": ["Brisk walking", "Push-ups", "Squats"],
-                        "duration": "30-40 minutes",
-                        "frequency": "3-4 times per week",
-                        "intensity": "Moderate"
+                        "id": 24,
+                        "program_type": "physical",
+                        "name": "Working Professional Sedentary Stable - Physical Program",
+                        "activities": [
+                            {
+                                "id": 123,
+                                "activity_name": "Brisk Walking: 20 Minutes",
+                                "duration_minutes": 20,
+                                "duration_seconds": 1200,
+                                "completed": False
+                            }
+                        ]
                     },
                     "mental_program": {
-                        "name": "CBT-based Journaling + Mindfulness",
-                        "activities": ["Daily journaling", "Meditation"],
-                        "duration": "15-20 minutes",
-                        "frequency": "Daily"
+                        "id": 25,
+                        "program_type": "mental",
+                        "name": "Working Professional Sedentary Stable - Mental Program",
+                        "activities": [
+                            {
+                                "id": 124,
+                                "activity_name": "Mindfulness Meditation: 10 Minutes",
+                                "duration_minutes": 10,
+                                "duration_seconds": 600,
+                                "completed": False
+                            }
+                        ]
                     },
-                    "engagement_score": 0.65,
-                    "motivation_score": 4
+                    "total_activities": 2,
+                    "user_engagement": 0.65,
+                    "user_motivation": 4
                 },
                 response_only=True
             )
         ]
     )
     def get(self, request):
-        """
-        GET: Return baseline program with RL-based adaptations
-        """
-        user = request.user
-        
-        # Get user segment
-        user_segment = self.get_segment_name(user)
-        
-        # Get user state for RL agent
-        user_state = self.get_user_state_dict(user)
-        
-        # Use RL agent to select action
-        action_id = RecommendProgram.rl_agent.select_action(user_state)
-        
-        # Get baseline program
-        if user_segment in self.program_recommendations:
-            program_data = self.program_recommendations[user_segment]
-        else:
-            program_data = self.program_recommendations["Mid Life Thriving Wellness Seeker"]
-            user_segment = "Mid Life Thriving Wellness Seeker"
-        
-        # Adapt program based on RL action
-        adapted_program = self.adapt_program_with_rl_action(program_data, action_id)
-        
-        # Save recommendation metadata to user
-        user.last_action_recommended = action_id
-        user.last_recommendation_date = timezone.now()
-        user.save(update_fields=['last_action_recommended', 'last_recommendation_date'])
-        
-        # Structure physical program exercises for frontend
-        physical_program = adapted_program.get("physical_program", {})
-        if physical_program and "exercises" in physical_program:
-            physical_program["structured_exercises"] = self.structure_exercises_for_frontend(
-                physical_program["exercises"],
-                physical_program.get("duration", "30 minutes")
-            )
-        
-        # Structure mental program activities for frontend
-        mental_program = adapted_program.get("mental_program", {})
-        if mental_program and "activities" in mental_program:
-            mental_program["structured_activities"] = self.structure_activities_for_frontend(
-                mental_program["activities"],
-                mental_program.get("duration", "15 minutes")
-            )
-        
-        recommended_program = {
-            "user_segment": user_segment,
-            "recommendation_type": "rl_adapted_program",
-            "rl_action": RecommendProgram.rl_agent.get_action_name(action_id),
-            "physical_program": physical_program,
-            "mental_program": mental_program,
-            "reminders": adapted_program.get("reminders", []),
-            "adaptation_reason": adapted_program.get("adaptation_reason", ""),
-            "engagement_score": user.engagement_score,
-            "motivation_score": user.motivation_score,
-            "personalization_note": "This program is personalized using AI-driven reinforcement learning based on your profile and past engagement.",
-            "next_steps": [
-                "Follow the recommended program for optimal results",
-                "Track your engagement to enable further personalization",
-                "Provide feedback on program suitability"
-            ]
-        }
-        
-        return Response(recommended_program, status=status.HTTP_200_OK)
+        """Return persisted recommendation payload with program/activity IDs."""
+        return RecommendedActivitiesView().get(request)
 
     @extend_schema(
         summary="Submit Program Feedback (Legacy)",
@@ -914,12 +900,18 @@ class RecommendedActivitiesView(APIView):
         try:
             # Get user's segment
             segment = self._get_user_segment(user)
+            segment_id = getattr(user, 'segment_label', 4)
             activity_segment = get_activity_segment_key(segment)
             
             # Get RL agent's recommended action
-            user_state = self._build_user_state(user, segment)
+            user_state = self._build_user_state(user, segment_id)
             action = RecommendedActivitiesView.rl_agent.select_action(user_state)
             action_name = RecommendedActivitiesView.rl_agent.get_action_name(action)
+
+            # Keep last action in sync for subsequent RL training endpoints.
+            user.last_action_recommended = int(action)
+            user.last_recommendation_date = timezone.now()
+            user.save(update_fields=['last_action_recommended', 'last_recommendation_date'])
             
             # Get activities using mapped activity segment key
             segment_activities = ACTIVITIES_BY_SEGMENT.get(activity_segment, {})
@@ -1072,7 +1064,8 @@ class RecommendedActivitiesView(APIView):
             'happiness_score': getattr(user, 'happiness_score', 5),
             'engagement': getattr(user, 'engagement_score', 0.5),
             'motivation': getattr(user, 'motivation_score', 3),
-            'segment': segment
+            # RL state expects an integer segment id, not label text.
+            'segment': int(segment) if segment is not None else 4
         }
     
     def _select_activities_by_action(self, action, physical, mental, user, segment):
@@ -1258,6 +1251,57 @@ class ProgramDetailView(APIView):
 
 
 @extend_schema(tags=['Activity Tracking'])
+class ActivityDetailView(APIView):
+    """GET /workout/activity/{activity_id}/"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Get Activity Detail",
+        description=(
+            "Fetch a single activity by ID for the authenticated user, including exact timer "
+            "fields (`duration_minutes` and `duration_seconds`)."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name='activity_id',
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description='Activity ID',
+            )
+        ],
+        responses={200: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+    )
+    def get(self, request, activity_id):
+        activity = Activity.objects.filter(user=request.user, id=activity_id).select_related('program').first()
+        if not activity:
+            return Response(
+                {"status": "error", "message": "Activity not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        activity_data = ActivitySerializer(activity).data
+
+        program_status = None
+        if activity.program_id:
+            program = activity.program
+            total = program.activities.count()
+            done = program.activities.filter(completed=True).count()
+            program_status = {
+                'program_id': program.id,
+                'completed': program.completed,
+                'total_activities': total,
+                'completed_activities': done,
+                'completion_rate': round(done / total, 2) if total else 0.0,
+                'completion_date': program.completion_date.isoformat() if program.completion_date else None,
+            }
+
+        return Response(
+            {"status": "success", "activity": activity_data, "program_status": program_status},
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(tags=['Activity Tracking'])
 class CompleteActivityView(APIView):
     """
     POST /workout/activity/{activity_id}/complete/
@@ -1341,14 +1385,21 @@ class CompleteActivityView(APIView):
             engagement = activity.engagement_contribution
             
             activity.save()
+
+            program_status = None
+            if activity.program_id:
+                program_status = sync_program_completion(activity.program)
             
             return Response({
                 "status": "success",
                 "activity_id": activity.id,
                 "activity_name": activity.activity_name,
+                "duration_minutes": activity.duration_minutes,
+                "duration_seconds": int(activity.duration_minutes or 0) * 60,
                 "completed": activity.completed,
                 "motivation": activity.motivation_after,
                 "engagement_contribution": float(engagement),
+                "program_status": program_status,
                 "user_stats": {
                     "total_activities_completed": user.workouts_completed if hasattr(user, 'workouts_completed') else 0,
                     "engagement_score": float(user.engagement_score) if hasattr(user, 'engagement_score') else 0.5
@@ -1498,6 +1549,7 @@ class ActivityFeedbackBatchView(APIView):
             completed_count = 0
             total_engagement = 0
             activity_ids = []
+            affected_program_ids = set()
             
             for activity_data in activities_data:
                 activity_id = activity_data.get('activity_id')
@@ -1513,6 +1565,14 @@ class ActivityFeedbackBatchView(APIView):
                 activity.save()
                 activity_ids.append(activity.id)
                 total_engagement += activity.engagement_contribution
+                if activity.program_id:
+                    affected_program_ids.add(activity.program_id)
+
+            program_updates = []
+            for program in Program.objects.filter(user=user, id__in=affected_program_ids):
+                summary = sync_program_completion(program)
+                if summary:
+                    program_updates.append(summary)
             
             # Create session and calculate aggregate metrics.
             session = WorkoutSession.objects.create(
@@ -1529,6 +1589,7 @@ class ActivityFeedbackBatchView(APIView):
             
             # Train RL agent with session-level feedback
             segment = self._get_user_segment(user)
+            segment_id = getattr(user, 'segment_label', 4)
             
             # Encode categorical fields
             gender = getattr(user, 'gender', 'male')
@@ -1559,7 +1620,8 @@ class ActivityFeedbackBatchView(APIView):
                 'happiness_score': getattr(user, 'happiness_score', 5),
                 'engagement': float(session_engagement),
                 'motivation': getattr(user, 'motivation_score', 3),
-                'segment': segment
+                # RL state expects an integer segment id, not label text.
+                'segment': int(segment_id) if segment_id is not None else 4
             }
             
             # Get last recommended action (from request or user's last action)
@@ -1600,6 +1662,7 @@ class ActivityFeedbackBatchView(APIView):
                     "completion_rate": session.completion_rate,
                     "avg_motivation": session.avg_motivation_after
                 },
+                "program_updates": program_updates,
                 "rl_training": {
                     "action_trained": int(last_action),
                     "reward_signal": float(session.engagement_contribution),

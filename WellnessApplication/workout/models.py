@@ -26,6 +26,8 @@ class Program(models.Model):
     # Mental program fields
     focus        = models.CharField(max_length=200, blank=True)
     rl_action_id = models.IntegerField(null=True, blank=True)
+    completed    = models.BooleanField(default=False)
+    completion_date = models.DateTimeField(null=True, blank=True)
     created_at   = models.DateTimeField(auto_now_add=True)
 
     class Meta:
