@@ -18,5 +18,6 @@ urlpatterns = [
     path('login/',TokenObtainPairView.as_view(),name='login'),
     path('token/refresh/',TokenRefreshView.as_view(),name='token_refresh'),
     path('statistics/', UserStatisticsView.as_view(), name='user_statistics'),
+    path('journal/', include('journal.urls')),
     path('workout/',include('workout.urls')),
 ]
