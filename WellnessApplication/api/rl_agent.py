@@ -81,50 +81,73 @@ class WellnessRLAgent:
         Returns:
             tuple: discrete state representation for Q-table lookup
         """
+        def safe_int(value, default, min_value=None, max_value=None):
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                number = int(default)
+            if min_value is not None:
+                number = max(min_value, number)
+            if max_value is not None:
+                number = min(max_value, number)
+            return number
+
+        def safe_float(value, default, min_value=None, max_value=None):
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                number = float(default)
+            if min_value is not None:
+                number = max(min_value, number)
+            if max_value is not None:
+                number = min(max_value, number)
+            return number
+
         # Age binning (0-5)
-        age_bin = min(int(user_state.get('age', 30) // 10), 5)
+        age = safe_int(user_state.get('age', 30), 30, min_value=0, max_value=120)
+        age_bin = min(int(age // 10), 5)
         
         # Gender (0 or 1)
-        gender = int(user_state.get('gender', 0))
+        gender = safe_int(user_state.get('gender', 0), 0, min_value=0, max_value=1)
         
         # Diet type (0-4: vegetarian, vegan, balanced, junk_food, keto)
-        diet_type = int(user_state.get('diet_type', 2))
+        diet_type = safe_int(user_state.get('diet_type', 2), 2, min_value=0, max_value=4)
         
         # Exercise level (0-2: low, moderate, high)
-        exercise_level = int(user_state.get('exercise_level', 1))
+        exercise_level = safe_int(user_state.get('exercise_level', 1), 1, min_value=0, max_value=2)
         
         # Stress level (0-2: low, moderate, high)
-        stress_level = int(user_state.get('stress_level', 1))
+        stress_level = safe_int(user_state.get('stress_level', 1), 1, min_value=0, max_value=2)
         
         # Mental health condition (0-4: none, ptsd, depression, anxiety, bipolar)
-        mental_health = int(user_state.get('mental_health_condition', 0))
+        mental_health = safe_int(user_state.get('mental_health_condition', 0), 0, min_value=0, max_value=4)
         
         # Sleep hours binning (0-2: 0-3hrs, 4-6hrs, 7-9hrs)
-        sleep_hours = user_state.get('sleep_hours', 7)
+        sleep_hours = safe_float(user_state.get('sleep_hours', 7), 7.0, min_value=0.0, max_value=9.0)
         sleep_bin = min(int(sleep_hours // 3), 2)
         
         # Work hours binning (0-3: 0-20, 21-40, 41-60, 61+)
-        work_hours = user_state.get('work_hours_per_week', 40)
+        work_hours = safe_float(user_state.get('work_hours_per_week', 40), 40.0, min_value=0.0, max_value=100.0)
         work_bin = min(int(work_hours // 20), 3)
         
         # Screen time binning (0-3: 0-6hrs, 7-12hrs, 13-18hrs, 19-24hrs)
-        screen_time = user_state.get('screen_time_per_day', 6.0)
+        screen_time = safe_float(user_state.get('screen_time_per_day', 6.0), 6.0, min_value=0.0, max_value=24.0)
         screen_bin = min(int(screen_time // 6), 3)
         
         # Social interaction score binning (0-2: 0-3, 4-7, 8-10)
-        social_score = user_state.get('social_interaction_score', 5)
+        social_score = safe_int(user_state.get('social_interaction_score', 5), 5, min_value=0, max_value=10)
         social_bin = 0 if social_score <= 3 else (1 if social_score <= 7 else 2)
         
         # Happiness score binning (0-2: 0-3, 4-7, 8-10)
-        happiness = user_state.get('happiness_score', 5)
+        happiness = safe_int(user_state.get('happiness_score', 5), 5, min_value=0, max_value=10)
         happiness_bin = 0 if happiness <= 3 else (1 if happiness <= 7 else 2)
         
         # Engagement binning (0-10)
-        engagement = user_state.get('engagement', 0.5)
+        engagement = safe_float(user_state.get('engagement', 0.5), 0.5, min_value=0.0, max_value=1.0)
         engagement_bin = min(int(engagement * 10), 10)
         
         # Segment ID (0-4)
-        segment_id = int(user_state.get('segment', 4))
+        segment_id = safe_int(user_state.get('segment', 4), 4, min_value=0, max_value=4)
         
         return (age_bin, gender, diet_type, exercise_level, stress_level, mental_health, sleep_bin, 
                 work_bin, screen_bin, social_bin, happiness_bin, engagement_bin, segment_id)

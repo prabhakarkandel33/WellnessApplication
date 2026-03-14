@@ -14,7 +14,7 @@ class ActivityAdmin(admin.ModelAdmin):
             'fields': ('user', 'user_segment', 'rl_action_id')
         }),
         ('Activity Details', {
-            'fields': ('activity_name', 'activity_type', 'description', 'duration_minutes', 'intensity', 'instructions')
+            'fields': ('activity_name', 'activity_type', 'description', 'duration_minutes', 'duration_seconds', 'intensity', 'instructions')
         }),
         ('Timeline', {
             'fields': ('assigned_date', 'completed', 'completion_date')

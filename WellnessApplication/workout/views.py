@@ -7,6 +7,7 @@ from rest_framework import status
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 from django.db.models import Avg, Sum, Count
+import re
 import random
 import os
 import sys
@@ -42,6 +43,34 @@ SEGMENT_TO_ACTIVITY_KEY = {
 def get_activity_segment_key(segment_name):
     """Map model segment labels to activity-catalog segment keys."""
     return SEGMENT_TO_ACTIVITY_KEY.get(segment_name, "Moderate Anxiety, Moderate Activity")
+
+
+def safe_int_or_default(value, default, min_value=None, max_value=None):
+    """Coerce a value to int while tolerating None/invalid input."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = int(default)
+
+    if min_value is not None:
+        number = max(min_value, number)
+    if max_value is not None:
+        number = min(max_value, number)
+    return number
+
+
+def safe_float_or_default(value, default, min_value=None, max_value=None):
+    """Coerce a value to float while tolerating None/invalid input."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = float(default)
+
+    if min_value is not None:
+        number = max(min_value, number)
+    if max_value is not None:
+        number = min(max_value, number)
+    return number
 
 
 def sync_program_completion(program):
@@ -375,7 +404,6 @@ class RecommendProgram(APIView):
         # Parse duration string to get minutes (e.g., "30-40 minutes" -> 35)
         duration_minutes = 30  # default
         if total_duration_str:
-            import re
             numbers = re.findall(r'\d+', total_duration_str)
             if numbers:
                 # Take average if range, otherwise take first number
@@ -816,14 +844,15 @@ class RecommendedActivitiesView(APIView):
     @extend_schema(
         summary="Get Daily Recommended Activities",
         description="""
-        Get 3-5 personalized activities for today, powered by RL agent.
+        Get personalized activities for today, powered by RL agent.
         
         **How it works:**
         1. System identifies your wellness segment (based on anxiety/activity levels)
         2. RL agent selects optimal action (0-5) based on your engagement history
         3. Activities are chosen and duration/difficulty adjusted dynamically
         4. Two persisted programs are created: one physical and one mental
-        5. Every activity is saved with an ID and linked to its parent program
+        5. Timed instruction steps are split into standalone activities when possible
+        6. Every activity is saved with an ID and linked to its parent program
         
         **RL Actions:**
         - **0 - Increase Workout Intensity**: More challenging physical activities
@@ -834,7 +863,8 @@ class RecommendedActivitiesView(APIView):
         - **5 - Maintain Current**: Keep current difficulty level
         
         **Activity Fields:**
-        - `duration_minutes`: Dynamically adjusted (10-60 min)
+        - `duration_seconds`: Explicit timer value for each activity unit
+        - `duration_minutes`: Rounded-up minute equivalent for display compatibility
         - `intensity`: low, moderate, or high
         - `rl_action_id`: Which RL action generated this (0-5)
         - `instructions`: Step-by-step guidance
@@ -916,11 +946,15 @@ class RecommendedActivitiesView(APIView):
             # Get activities using mapped activity segment key
             segment_activities = ACTIVITIES_BY_SEGMENT.get(activity_segment, {})
             physical_activities = segment_activities.get("physical", [])
-            # Skip journaling templates; this endpoint handles exercise + meditation only.
+            all_mental_activities = segment_activities.get("mental", [])
             mental_activities = [
-                item for item in segment_activities.get("mental", [])
+                item for item in all_mental_activities
                 if str(item.get("type", "")).lower() != 'journaling'
             ]
+            # If a segment has too few meditation items, include journaling templates
+            # so we can still build multi-activity sessions.
+            if len(mental_activities) < 2 and all_mental_activities:
+                mental_activities = list(all_mental_activities)
             
             # Select activities based on RL action
             selected_activities = self._select_activities_by_action(
@@ -993,6 +1027,9 @@ class RecommendedActivitiesView(APIView):
                 action=action,
                 catalog_activities=mental_selected,
             )
+
+            self._sync_program_duration(physical_program)
+            self._sync_program_duration(mental_program)
             
             return Response({
                 "status": "success",
@@ -1051,44 +1088,67 @@ class RecommendedActivitiesView(APIView):
         mental_encoded = mental_mapping.get(mental_health, 0)
         
         return {
-            'age': getattr(user, 'age', 30),
+            'age': safe_int_or_default(getattr(user, 'age', None), 30, min_value=0),
             'gender': gender_encoded,
             'diet_type': diet_encoded,
             'exercise_level': exercise_encoded,
             'stress_level': stress_encoded,
             'mental_health_condition': mental_encoded,
-            'sleep_hours': getattr(user, 'sleep_hours', 7),
-            'work_hours_per_week': getattr(user, 'work_hours_per_week', 40),
-            'screen_time_per_day': getattr(user, 'screen_time_per_day', 6.0),
-            'social_interaction_score': getattr(user, 'self_reported_social_interaction_score', 5),
-            'happiness_score': getattr(user, 'happiness_score', 5),
-            'engagement': getattr(user, 'engagement_score', 0.5),
-            'motivation': getattr(user, 'motivation_score', 3),
+            'sleep_hours': safe_float_or_default(getattr(user, 'sleep_hours', None), 7.0, min_value=0.0, max_value=9.0),
+            'work_hours_per_week': safe_float_or_default(getattr(user, 'work_hours_per_week', None), 40.0, min_value=0.0, max_value=100.0),
+            'screen_time_per_day': safe_float_or_default(getattr(user, 'screen_time_per_day', None), 6.0, min_value=0.0, max_value=24.0),
+            'social_interaction_score': safe_int_or_default(getattr(user, 'self_reported_social_interaction_score', None), 5, min_value=0, max_value=10),
+            'happiness_score': safe_int_or_default(getattr(user, 'happiness_score', None), 5, min_value=0, max_value=10),
+            'engagement': safe_float_or_default(getattr(user, 'engagement_score', None), 0.5, min_value=0.0, max_value=1.0),
+            'motivation': safe_int_or_default(getattr(user, 'motivation_score', None), 3, min_value=1, max_value=5),
             # RL state expects an integer segment id, not label text.
             'segment': int(segment) if segment is not None else 4
         }
     
     def _select_activities_by_action(self, action, physical, mental, user, segment):
-        """Select activities based on RL action"""
-        activities = []
-        
-        # Action-based selection
-        if action == 0:  # Increase Workout Intensity
-            activities.extend(random.sample(physical, min(2, len(physical))))
-        elif action == 1:  # Decrease Workout Intensity
-            activities.extend(random.sample(physical, min(1, len(physical))))
-        elif action == 2:  # Increase Meditation Frequency
-            activities.extend(random.sample(mental, min(2, len(mental))))
-        elif action == 3:  # Send Motivational Message
-            activities.extend(random.sample(physical, min(1, len(physical))))
-            activities.extend(random.sample(mental, min(1, len(mental))))
-        elif action == 4:  # Increase Mental Focus
-            activities.extend(random.sample(mental, min(2, len(mental))))
-        else:  # Maintain Current Plan (action 5)
-            activities.extend(random.sample(physical, min(1, len(physical))))
-            activities.extend(random.sample(mental, min(1, len(mental))))
-        
-        return activities
+        """Select a multi-activity session based on RL action with balanced variety."""
+        action_targets = {
+            # Increase Workout Intensity
+            0: {'physical': 3, 'mental': 1},
+            # Decrease Workout Intensity
+            1: {'physical': 2, 'mental': 1},
+            # Increase Meditation Frequency
+            2: {'physical': 1, 'mental': 3},
+            # Send Motivational Message (balanced)
+            3: {'physical': 2, 'mental': 2},
+            # Increase Mental Focus
+            4: {'physical': 1, 'mental': 3},
+            # Maintain Current Plan
+            5: {'physical': 2, 'mental': 2},
+        }
+        targets = action_targets.get(int(action), {'physical': 2, 'mental': 2})
+
+        selected_physical = self._sample_activities(physical, targets['physical'])
+        selected_mental = self._sample_activities(mental, targets['mental'])
+        selected = list(selected_physical) + list(selected_mental)
+
+        # Top up from whichever pool still has unique items so sessions are not too small.
+        desired_total = min(
+            targets['physical'] + targets['mental'],
+            len(physical) + len(mental),
+        )
+        if len(selected) < desired_total:
+            remaining = [
+                item for item in list(physical) + list(mental)
+                if item not in selected
+            ]
+            random.shuffle(remaining)
+            selected.extend(remaining[: desired_total - len(selected)])
+
+        return selected
+
+    def _sample_activities(self, catalog, count):
+        """Sample up to `count` unique activities from a catalog list."""
+        if not catalog or count <= 0:
+            return []
+        if len(catalog) <= count:
+            return list(catalog)
+        return random.sample(catalog, count)
     
     def _get_recent_engagement(self, user):
         """Get recent engagement data for the user"""
@@ -1128,6 +1188,148 @@ class RecommendedActivitiesView(APIView):
         except (TypeError, ValueError):
             return 10
 
+    def _safe_duration_seconds_from_minutes(self, value):
+        """Convert minute-based duration values to positive integer seconds."""
+        return self._safe_duration_minutes(value) * 60
+
+    def _duration_parts_to_seconds(self, amount, unit):
+        """Convert parsed duration pieces (e.g., 30 + seconds) into seconds."""
+        quantity = max(1, int(amount))
+        unit_text = str(unit or '').lower()
+        if unit_text.startswith('min'):
+            return quantity * 60
+        return quantity
+
+    def _compact_whitespace(self, text):
+        return re.sub(r'\s+', ' ', str(text or '')).strip()
+
+    def _build_step_name(self, parent_name, step_text, prefix=None, round_number=None):
+        """Create a short activity name for an extracted step."""
+        label = self._compact_whitespace(step_text)
+        if '(' in label:
+            label = label.split('(', 1)[0].strip()
+        label = label.rstrip(':').strip()
+        if prefix:
+            label = prefix
+        if not label:
+            label = 'Step'
+
+        name = f"{parent_name} - {label}"
+        if round_number is not None:
+            name = f"{name} (Round {round_number})"
+        return name[:200]
+
+    def _extract_timed_units(self, parent_name, instructions):
+        """Extract timed instruction lines into standalone activity units."""
+        timed_units = []
+        repeat_count = 1
+
+        timed_step_pattern = re.compile(
+            r'^(?:[-*]\s*)?(?:\d+[\.)]\s*)?(?P<value>\d+)\s*'
+            r'(?P<unit>seconds?|secs?|minutes?|mins?)\s*:\s*(?P<step>.+)$',
+            re.IGNORECASE,
+        )
+        labeled_duration_pattern = re.compile(
+            r'^(?:[-*]\s*)?(?P<label>[A-Za-z][A-Za-z\s\-/]+?)\s*\('
+            r'(?P<value>\d+)\s*(?P<unit>seconds?|secs?|minutes?|mins?)\)\s*:\s*(?P<details>.+)$',
+            re.IGNORECASE,
+        )
+        repeat_pattern = re.compile(r'repeat\s+(?P<count>\d+)\s+times', re.IGNORECASE)
+
+        for raw_line in instructions:
+            line = self._compact_whitespace(raw_line)
+            if not line:
+                continue
+
+            repeat_match = repeat_pattern.search(line)
+            if repeat_match:
+                repeat_count = max(1, int(repeat_match.group('count')))
+                continue
+
+            if line.lower().startswith(('tips:', 'safety:', 'benefits:', 'goal:')):
+                repeat_count = 1
+                continue
+
+            labeled_match = labeled_duration_pattern.match(line)
+            if labeled_match:
+                label = self._compact_whitespace(labeled_match.group('label')).title()
+                details = self._compact_whitespace(labeled_match.group('details'))
+                seconds = self._duration_parts_to_seconds(
+                    labeled_match.group('value'),
+                    labeled_match.group('unit'),
+                )
+
+                timed_units.append({
+                    'activity_name': self._build_step_name(parent_name, details or label, prefix=label),
+                    'description': details or label,
+                    'duration_seconds': seconds,
+                    'instructions': [details or label],
+                })
+                repeat_count = 1
+                continue
+
+            timed_match = timed_step_pattern.match(line)
+            if timed_match:
+                seconds = self._duration_parts_to_seconds(
+                    timed_match.group('value'),
+                    timed_match.group('unit'),
+                )
+                step = self._compact_whitespace(timed_match.group('step'))
+                rounds = repeat_count if repeat_count > 1 else 1
+
+                for idx in range(rounds):
+                    round_number = idx + 1 if rounds > 1 else None
+                    description = step
+                    if round_number is not None:
+                        description = f"{step} (Round {round_number} of {rounds})"
+
+                    timed_units.append({
+                        'activity_name': self._build_step_name(parent_name, step, round_number=round_number),
+                        'description': description,
+                        'duration_seconds': seconds,
+                        'instructions': [description],
+                    })
+                continue
+
+            line_lower = line.lower()
+            if 'cool-down' in line_lower or 'cool down' in line_lower or line_lower.startswith('total:'):
+                repeat_count = 1
+
+        return timed_units
+
+    def _expand_catalog_activity(self, item):
+        """Split one catalog activity into atomic timer-friendly units when possible."""
+        instructions = item.get('instructions', [])
+        if not isinstance(instructions, list):
+            instructions = [str(instructions)] if instructions else []
+
+        parent_name = self._compact_whitespace(item.get('name', 'Unnamed Activity')) or 'Unnamed Activity'
+        parent_description = self._compact_whitespace(item.get('description', ''))
+        default_seconds = self._safe_duration_seconds_from_minutes(item.get('duration'))
+
+        timed_units = self._extract_timed_units(parent_name, instructions)
+        if not timed_units:
+            return [{
+                'activity_name': parent_name,
+                'description': parent_description,
+                'duration_seconds': default_seconds,
+                'duration_minutes': max(1, (default_seconds + 59) // 60),
+                'instructions': instructions,
+            }]
+
+        expanded = []
+        for unit in timed_units:
+            duration_seconds = max(1, int(unit.get('duration_seconds') or default_seconds))
+            expanded.append({
+                'activity_name': unit.get('activity_name', parent_name)[:200],
+                'description': unit.get('description') or parent_description,
+                'duration_seconds': duration_seconds,
+                'duration_minutes': max(1, (duration_seconds + 59) // 60),
+                'instructions': unit.get('instructions') or instructions,
+            })
+
+        return expanded
+
     def _normalize_intensity(self, value):
         intensity = str(value or 'Moderate').strip().lower()
         if intensity.startswith('low'):
@@ -1150,31 +1352,39 @@ class RecommendedActivitiesView(APIView):
                 dominant = normalized
         return dominant
 
+    def _sync_program_duration(self, program):
+        """Refresh program duration string from persisted child activities."""
+        total_seconds = program.activities.aggregate(total=Sum('duration_seconds')).get('total') or 0
+        total_minutes = max(1, (int(total_seconds) + 59) // 60) if total_seconds else 0
+        duration_label = f"{total_minutes} minutes"
+
+        if program.duration != duration_label:
+            program.duration = duration_label
+            program.save(update_fields=['duration'])
+
     def _create_program_activities(self, user, program, segment, action, catalog_activities):
         """Persist selected catalog activities under a program and return created rows."""
         created = []
         now = timezone.now()
 
         for item in catalog_activities:
-            instructions = item.get('instructions', [])
-            if not isinstance(instructions, list):
-                instructions = [str(instructions)] if instructions else []
-
-            created.append(
-                Activity.objects.create(
-                    user=user,
-                    program=program,
-                    activity_name=item.get('name', 'Unnamed Activity'),
-                    activity_type=self._normalize_activity_type(item.get('type')),
-                    user_segment=segment,
-                    rl_action_id=action,
-                    description=item.get('description', ''),
-                    duration_minutes=self._safe_duration_minutes(item.get('duration')),
-                    intensity=self._normalize_intensity(item.get('intensity')),
-                    instructions=instructions,
-                    assigned_date=now,
+            for unit in self._expand_catalog_activity(item):
+                created.append(
+                    Activity.objects.create(
+                        user=user,
+                        program=program,
+                        activity_name=unit['activity_name'],
+                        activity_type=self._normalize_activity_type(item.get('type')),
+                        user_segment=segment,
+                        rl_action_id=action,
+                        description=unit['description'],
+                        duration_minutes=unit['duration_minutes'],
+                        duration_seconds=unit['duration_seconds'],
+                        intensity=self._normalize_intensity(item.get('intensity')),
+                        instructions=unit['instructions'],
+                        assigned_date=now,
+                    )
                 )
-            )
 
         return created
 
@@ -1395,7 +1605,7 @@ class CompleteActivityView(APIView):
                 "activity_id": activity.id,
                 "activity_name": activity.activity_name,
                 "duration_minutes": activity.duration_minutes,
-                "duration_seconds": int(activity.duration_minutes or 0) * 60,
+                "duration_seconds": activity.duration_seconds,
                 "completed": activity.completed,
                 "motivation": activity.motivation_after,
                 "engagement_contribution": float(engagement),
@@ -1608,24 +1818,24 @@ class ActivityFeedbackBatchView(APIView):
             mental_encoded = mental_mapping.get(mental_health, 0)
             
             user_state = {
-                'age': getattr(user, 'age', 30),
+                'age': safe_int_or_default(getattr(user, 'age', None), 30, min_value=0),
                 'gender': gender_encoded,
                 'diet_type': diet_encoded,
                 'stress_level': stress_encoded,
                 'mental_health_condition': mental_encoded,
-                'sleep_hours': getattr(user, 'sleep_hours', 7),
-                'work_hours_per_week': getattr(user, 'work_hours_per_week', 40),
-                'screen_time_per_day': getattr(user, 'screen_time_per_day', 6.0),
-                'social_interaction_score': getattr(user, 'self_reported_social_interaction_score', 5),
-                'happiness_score': getattr(user, 'happiness_score', 5),
-                'engagement': float(session_engagement),
-                'motivation': getattr(user, 'motivation_score', 3),
+                'sleep_hours': safe_float_or_default(getattr(user, 'sleep_hours', None), 7.0, min_value=0.0, max_value=9.0),
+                'work_hours_per_week': safe_float_or_default(getattr(user, 'work_hours_per_week', None), 40.0, min_value=0.0, max_value=100.0),
+                'screen_time_per_day': safe_float_or_default(getattr(user, 'screen_time_per_day', None), 6.0, min_value=0.0, max_value=24.0),
+                'social_interaction_score': safe_int_or_default(getattr(user, 'self_reported_social_interaction_score', None), 5, min_value=0, max_value=10),
+                'happiness_score': safe_int_or_default(getattr(user, 'happiness_score', None), 5, min_value=0, max_value=10),
+                'engagement': safe_float_or_default(session_engagement, 0.5, min_value=0.0, max_value=1.0),
+                'motivation': safe_int_or_default(getattr(user, 'motivation_score', None), 3, min_value=1, max_value=5),
                 # RL state expects an integer segment id, not label text.
                 'segment': int(segment_id) if segment_id is not None else 4
             }
             
             # Get last recommended action (from request or user's last action)
-            last_action = getattr(user, 'last_action_recommended', 5)
+            last_action = safe_int_or_default(getattr(user, 'last_action_recommended', None), 5, min_value=0, max_value=5)
             
             ActivityFeedbackBatchView.rl_agent.update_q_value(
                 user_state, last_action, session.engagement_contribution, user_state

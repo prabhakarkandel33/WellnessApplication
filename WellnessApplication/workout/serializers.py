@@ -8,12 +8,13 @@ from workout.models import Program, Activity, WorkoutSession
 
 class ActivitySerializer(serializers.ModelSerializer):
     """Serializer for Activity model"""
-    duration_seconds = serializers.SerializerMethodField(help_text="Exact activity timer duration in seconds")
-    
+    activity_id = serializers.IntegerField(source='id', read_only=True, help_text="Activity ID")
+    program_id = serializers.IntegerField(read_only=True, allow_null=True, help_text="Parent program ID")
+
     class Meta:
         model = Activity
         fields = [
-            'id', 'program', 'activity_name', 'activity_type', 'user_segment', 'rl_action_id',
+            'activity_id', 'id', 'program_id', 'program', 'activity_name', 'activity_type', 'user_segment', 'rl_action_id',
             'description', 'duration_minutes', 'intensity', 'instructions',
             'duration_seconds',
             'assigned_date', 'completed', 'completion_date',
@@ -26,18 +27,16 @@ class ActivitySerializer(serializers.ModelSerializer):
             'engagement_contribution', 'created_at', 'updated_at'
         ]
 
-    def get_duration_seconds(self, obj):
-        return int(obj.duration_minutes or 0) * 60
-
 
 class ProgramActivitySerializer(serializers.ModelSerializer):
     """Activity payload nested under a program."""
-    duration_seconds = serializers.SerializerMethodField(help_text="Exact activity timer duration in seconds")
+    activity_id = serializers.IntegerField(source='id', read_only=True, help_text="Activity ID")
+    program_id = serializers.IntegerField(read_only=True, allow_null=True, help_text="Parent program ID")
 
     class Meta:
         model = Activity
         fields = [
-            'id', 'activity_name', 'activity_type', 'description',
+            'activity_id', 'id', 'program_id', 'activity_name', 'activity_type', 'description',
             'duration_minutes', 'intensity', 'instructions',
             'duration_seconds',
             'completed', 'completion_date',
@@ -46,12 +45,10 @@ class ProgramActivitySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def get_duration_seconds(self, obj):
-        return int(obj.duration_minutes or 0) * 60
-
 
 class ProgramSerializer(serializers.ModelSerializer):
     """Program payload with contained activities."""
+    program_id = serializers.IntegerField(source='id', read_only=True, help_text="Program ID")
     activities = ProgramActivitySerializer(many=True, read_only=True)
     total_activities = serializers.SerializerMethodField(help_text="Total activities in this program")
     completed_activities = serializers.SerializerMethodField(help_text="Number of completed activities")
@@ -60,7 +57,7 @@ class ProgramSerializer(serializers.ModelSerializer):
     class Meta:
         model = Program
         fields = [
-            'id', 'program_type', 'name', 'description', 'segment',
+            'program_id', 'id', 'program_type', 'name', 'description', 'segment',
             'duration', 'frequency', 'intensity', 'progression', 'focus',
             'rl_action_id', 'completed', 'completion_date',
             'total_activities', 'completed_activities', 'completion_rate',
@@ -122,10 +119,12 @@ class ActivityCompletionResponseSerializer(serializers.Serializer):
 
 class RecommendedActivitySerializer(serializers.Serializer):
     """Serializer for recommended activity in response"""
+    activity_id = serializers.IntegerField(source='id', read_only=True, help_text="Activity ID")
     id = serializers.IntegerField(read_only=True, help_text="Activity ID")
     activity_name = serializers.CharField(help_text="Name of the activity")
     activity_type = serializers.CharField(help_text="Type: 'physical' or 'mental'")
     duration_minutes = serializers.IntegerField(help_text="Recommended duration in minutes")
+    duration_seconds = serializers.IntegerField(help_text="Recommended duration in seconds")
     intensity = serializers.CharField(help_text="Intensity level: low, moderate, or high")
     instructions = serializers.CharField(help_text="Step-by-step instructions")
     user_segment = serializers.CharField(help_text="User segment this activity is for")
