@@ -70,9 +70,15 @@ _ENTRY_CBT_DESCRIPTION = """
 | `situation` | 1 – Situation | Brief description of the triggering event |
 | `automatic_thought` | 2 – Automatic Thought | Raw thought, word-for-word |
 | `emotion_intensity_before` | 3 – Emotion Intensity | Integer 0–100 before reframing |
-| `cognitive_distortions` | 4 – Distortions | Array of distortion keys — **must be one or more of the exact values below** |
+| `cognitive_distortions` | 4 – Distortions | Array of keys (or use `cognitive_distortion_labels` for label input) |
 
-**Valid `cognitive_distortions` keys** (send as a JSON array of strings, or `[]` to clear):
+**`cognitive_distortions` input (easy options):**
+
+- Option A: send `cognitive_distortions` as keys (recommended for API clients)
+- Option B: send `cognitive_distortion_labels` as human-readable labels (auto-converted to keys)
+- Send `[]` to clear
+
+**Available key/label pairs:**
 
 | Key | Label |
 |---|---|
@@ -89,7 +95,14 @@ _ENTRY_CBT_DESCRIPTION = """
 | `personalization` | Personalization |
 | `should_statements` | "Should" Statements |
 
-Example: `"cognitive_distortions": ["catastrophizing", "mind_reading"]`
+Examples:
+- `"cognitive_distortions": ["catastrophizing", "mind_reading"]`
+- `"cognitive_distortion_labels": ["Catastrophizing", "Mind Reading"]`
+
+**Remaining thought-record fields:**
+
+| Field | CBT Step | Notes |
+|---|---|---|
 | `evidence_for` | 5a – Evidence For | Facts supporting the thought |
 | `evidence_against` | 5b – Evidence Against | Facts challenging the thought |
 | `balanced_thought` | 6 – Balanced Thought | Reframed, realistic alternative |
@@ -601,7 +614,7 @@ _CBT_GUIDE_PAYLOAD = {
     description=(
         'Returns a complete, human-readable guide to CBT thought-record journaling: '
         'what each field means, step-by-step instructions, practical examples, '
-        'and the full list of valid cognitive distortion keys accepted by the API. '
+        'and the full list of valid cognitive distortions accepted by the API (keys + labels). '
         'Designed to be displayed in an in-app "Help / How it works" screen.'
     ),
     responses={200: CBTGuideSerializer},

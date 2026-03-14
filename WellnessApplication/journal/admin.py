@@ -1,6 +1,31 @@
+from django import forms
 from django.contrib import admin
 
 from journal.models import JournalEntry, JournalPrompt, JournalReadEvent, JournalTag
+
+
+class JournalEntryAdminForm(forms.ModelForm):
+    """Use checkboxes for cognitive distortions instead of raw JSON editing."""
+    cognitive_distortions = forms.MultipleChoiceField(
+        choices=JournalEntry.COGNITIVE_DISTORTIONS,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text='Select one or more distortions. Leave empty if none apply.',
+    )
+
+    class Meta:
+        model = JournalEntry
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['cognitive_distortions'].initial = self.instance.cognitive_distortions or []
+
+    def clean_cognitive_distortions(self):
+        values = self.cleaned_data.get('cognitive_distortions', [])
+        # Store as a JSON list of keys in the model field.
+        return list(values)
 
 
 @admin.register(JournalTag)
@@ -11,6 +36,7 @@ class JournalTagAdmin(admin.ModelAdmin):
 
 @admin.register(JournalEntry)
 class JournalEntryAdmin(admin.ModelAdmin):
+    form = JournalEntryAdminForm
     list_display = (
         'id',
         'user',

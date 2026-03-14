@@ -3,7 +3,7 @@ Serializers for workout app API endpoints.
 Used for request/response documentation and validation.
 """
 from rest_framework import serializers
-from workout.models import Activity, WorkoutSession
+from workout.models import Program, Activity, WorkoutSession
 
 
 class ActivitySerializer(serializers.ModelSerializer):
@@ -12,7 +12,7 @@ class ActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Activity
         fields = [
-            'id', 'activity_name', 'activity_type', 'user_segment', 'rl_action_id',
+            'id', 'program', 'activity_name', 'activity_type', 'user_segment', 'rl_action_id',
             'description', 'duration_minutes', 'intensity', 'instructions',
             'assigned_date', 'completed', 'completion_date',
             'motivation_before', 'motivation_after', 'motivation_delta',
@@ -23,6 +23,50 @@ class ActivitySerializer(serializers.ModelSerializer):
             'id', 'user', 'motivation_delta', 'is_motivating',
             'engagement_contribution', 'created_at', 'updated_at'
         ]
+
+
+class ProgramActivitySerializer(serializers.ModelSerializer):
+    """Activity payload nested under a program."""
+
+    class Meta:
+        model = Activity
+        fields = [
+            'id', 'activity_name', 'activity_type', 'description',
+            'duration_minutes', 'intensity', 'instructions',
+            'completed', 'completion_date',
+            'motivation_before', 'motivation_after',
+            'assigned_date'
+        ]
+        read_only_fields = fields
+
+
+class ProgramSerializer(serializers.ModelSerializer):
+    """Program payload with contained activities."""
+    activities = ProgramActivitySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Program
+        fields = [
+            'id', 'program_type', 'name', 'description', 'segment',
+            'duration', 'frequency', 'intensity', 'progression', 'focus',
+            'rl_action_id', 'created_at', 'activities'
+        ]
+        read_only_fields = fields
+
+
+class RecommendedProgramsResponseSerializer(serializers.Serializer):
+    """Response for GET /workout/activity/recommended/ with persisted programs."""
+    status = serializers.CharField(help_text="Success status")
+    user_segment = serializers.CharField(help_text="User's wellness segment")
+    activity_segment = serializers.CharField(help_text="Mapped activity catalog segment")
+    rl_action = serializers.IntegerField(help_text="RL action ID selected (0-5)")
+    rl_action_name = serializers.CharField(help_text="Human-readable action name")
+    reason = serializers.CharField(help_text="Explanation of why these activities were chosen")
+    physical_program = ProgramSerializer(help_text="Persisted physical program")
+    mental_program = ProgramSerializer(help_text="Persisted mental program")
+    total_activities = serializers.IntegerField(help_text="Number of created activities")
+    user_engagement = serializers.FloatField(help_text="Current user engagement score (0-1)")
+    user_motivation = serializers.IntegerField(help_text="Current user motivation score (1-5)")
 
 
 class ActivityCompletionRequestSerializer(serializers.Serializer):

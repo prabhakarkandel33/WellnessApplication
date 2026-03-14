@@ -231,15 +231,17 @@ class NotificationListView(APIView):
 		summary='List notifications',
 		description=(
 			'Returns notifications for the authenticated user, newest first.\n\n'
-			'**Notification types and their rules:**\n\n'
+			'**All four notification rules are evaluated automatically on every poll** — '
+			'the backend creates any due notifications before returning the list. '
+			'The frontend only ever needs to call this one endpoint.\n\n'
+			'**Rules evaluated on each poll:**\n\n'
 			'| Type | Rule |\n'
 			'|---|---|\n'
-			'| `motivational_quote` | Sent at most once every **48 hours** |\n'
-			'| `exercise_reminder` | Sent if no exercise completed **today** (once per day) |\n'
-			'| `weekly_stats` | Sent once per week on **Sunday** with a full activity summary |\n'
-			'| `journal_reminder` | Sent if no journal entry in the last **3 days** |\n\n'
-			'Use `?unread_only=true` to fetch only unread notifications.\n\n'
-			'Call `POST /api/notifications/generate/` first to evaluate and create pending notifications.'
+			'| `motivational_quote` | Created at most once every **48 hours** |\n'
+			'| `exercise_reminder` | Created if no exercise completed **today** (once per day) |\n'
+			'| `weekly_stats` | Created once per week on **Sunday** with a full activity summary |\n'
+			'| `journal_reminder` | Created if no journal entry in the last **3 days** |\n\n'
+			'Use `?unread_only=true` to fetch only unread notifications.'
 		),
 		parameters=[
 			OpenApiParameter(
@@ -265,7 +267,20 @@ class NotificationListView(APIView):
 		},
 	)
 	def get(self, request):
-		qs = Notification.objects.filter(user=request.user)
+		# Evaluate all rules on every poll — idempotent, so safe to run every time.
+		user = request.user
+		to_create = [
+			n for n in [
+				_maybe_quote(user),
+				_maybe_exercise_reminder(user),
+				_maybe_weekly_stats(user),
+				_maybe_journal_reminder(user),
+			] if n is not None
+		]
+		if to_create:
+			Notification.objects.bulk_create(to_create)
+
+		qs = Notification.objects.filter(user=user)
 		if request.query_params.get('unread_only', '').lower() in ('true', '1'):
 			qs = qs.filter(is_read=False)
 		return Response(NotificationSerializer(qs[:50], many=True).data)
