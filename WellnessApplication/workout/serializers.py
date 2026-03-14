@@ -14,7 +14,7 @@ class ActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Activity
         fields = [
-            'activity_id', 'id', 'program_id', 'program', 'activity_name', 'activity_type', 'user_segment', 'rl_action_id',
+            'activity_id', 'id', 'program_id', 'program', 'activity_name', 'activity_type', 'rl_action_id',
             'description', 'duration_minutes', 'intensity', 'instructions',
             'duration_seconds',
             'assigned_date', 'completed', 'completion_date',
@@ -57,7 +57,7 @@ class ProgramSerializer(serializers.ModelSerializer):
     class Meta:
         model = Program
         fields = [
-            'program_id', 'id', 'program_type', 'name', 'description', 'segment',
+            'program_id', 'id', 'program_type', 'name', 'description',
             'duration', 'frequency', 'intensity', 'progression', 'focus',
             'rl_action_id', 'completed', 'completion_date',
             'total_activities', 'completed_activities', 'completion_rate',
@@ -82,8 +82,6 @@ class ProgramSerializer(serializers.ModelSerializer):
 class RecommendedProgramsResponseSerializer(serializers.Serializer):
     """Response for GET /workout/activity/recommended/ with persisted programs."""
     status = serializers.CharField(help_text="Success status")
-    user_segment = serializers.CharField(help_text="User's wellness segment")
-    activity_segment = serializers.CharField(help_text="Mapped activity catalog segment")
     rl_action = serializers.IntegerField(help_text="RL action ID selected (0-5)")
     rl_action_name = serializers.CharField(help_text="Human-readable action name")
     reason = serializers.CharField(help_text="Explanation of why these activities were chosen")
@@ -97,10 +95,6 @@ class RecommendedProgramsResponseSerializer(serializers.Serializer):
 class ActivityCompletionRequestSerializer(serializers.Serializer):
     """Request body for completing an activity"""
     completed = serializers.BooleanField(default=True, help_text="Whether the activity was completed")
-    motivation = serializers.IntegerField(
-        min_value=1, max_value=5, required=True,
-        help_text="Your motivation level after completing the activity (1-5)"
-    )
 
 
 class ActivityCompletionResponseSerializer(serializers.Serializer):
@@ -111,7 +105,7 @@ class ActivityCompletionResponseSerializer(serializers.Serializer):
     duration_minutes = serializers.IntegerField()
     duration_seconds = serializers.IntegerField()
     completed = serializers.BooleanField()
-    motivation = serializers.IntegerField()
+    motivation = serializers.IntegerField(required=False, allow_null=True)
     engagement_contribution = serializers.FloatField()
     program_status = serializers.DictField(required=False, allow_null=True)
     user_stats = serializers.DictField()
@@ -240,6 +234,27 @@ class ActivityFeedbackBatchRequestSerializer(serializers.Serializer):
     overall_session_rating = serializers.IntegerField(
         min_value=1, max_value=5,
         help_text="Overall session satisfaction (1-5)"
+    )
+    notes = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True,
+        help_text="Optional session notes"
+    )
+
+
+class ProgramFeedbackRequestSerializer(serializers.Serializer):
+    """Request body for program-level feedback (applies to all program activities)."""
+    overall_session_rating = serializers.IntegerField(
+        min_value=1, max_value=5,
+        help_text="Overall session satisfaction (1-5)"
+    )
+    completed = serializers.BooleanField(
+        default=True,
+        help_text="Mark all activities in the program as completed or not completed"
+    )
+    motivation = serializers.IntegerField(
+        min_value=1, max_value=5,
+        required=False,
+        help_text="Motivation to apply to all activities. Defaults to overall_session_rating"
     )
     notes = serializers.CharField(
         max_length=1000, required=False, allow_blank=True,

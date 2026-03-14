@@ -54,79 +54,78 @@ def _update_user_statistics(user):
     Calculate and update all statistics for a user.
     This is called by signal handlers to keep statistics in sync.
     """
-    from django.db.models import Count, Sum, Avg
+    from django.db.models import Sum, Avg
     from django.utils import timezone
     from datetime import timedelta
-    
+
     # Get or create statistics object
-    stats, created = UserStatistics.objects.get_or_create(user=user)
-    
-    # Calculate completed activities
-    completed_activities = Activity.objects.filter(
-        user=user,
-        completed=True
-    )
-    
+    stats, _ = UserStatistics.objects.get_or_create(user=user)
+
+    all_activities = Activity.objects.filter(user=user)
+    completed_activities = all_activities.filter(completed=True)
+
+    # Core activity counts
     stats.total_activities_completed = completed_activities.count()
-    
-    # Calculate total duration from workout sessions
-    workout_sessions = WorkoutSession.objects.filter(user=user)
-    duration_sum = workout_sessions.aggregate(
-        total=Sum('duration_minutes')
-    )['total'] or 0
-    stats.total_duration_minutes = duration_sum
-    
-    # Average session length
-    if stats.total_activities_completed > 0:
-        stats.average_session_length = duration_sum / stats.total_activities_completed
+
+    # By-type completion counts
+    stats.total_exercises = completed_activities.filter(activity_type='exercise').count()
+    stats.total_meditations = completed_activities.filter(activity_type='meditation').count()
+    stats.total_journaling = completed_activities.filter(activity_type='journaling').count()
+
+    # Time metrics by type
+    stats.total_minutes_exercised = (
+        completed_activities.filter(activity_type='exercise').aggregate(total=Sum('duration_minutes'))['total'] or 0
+    )
+    stats.total_minutes_meditated = (
+        completed_activities.filter(activity_type='meditation').aggregate(total=Sum('duration_minutes'))['total'] or 0
+    )
+
+    # Averages
+    stats.avg_motivation_improvement = round(
+        completed_activities.exclude(motivation_delta__isnull=True).aggregate(avg=Avg('motivation_delta'))['avg'] or 0.0,
+        2,
+    )
+    stats.avg_enjoyment_rating = round(
+        completed_activities.exclude(enjoyment_rating__isnull=True).aggregate(avg=Avg('enjoyment_rating'))['avg'] or 0.0,
+        2,
+    )
+    stats.avg_difficulty_rating = round(
+        completed_activities.exclude(difficulty_rating__isnull=True).aggregate(avg=Avg('difficulty_rating'))['avg'] or 0.0,
+        2,
+    )
+
+    # Completion rate (% assigned that were completed)
+    stats.total_activities_assigned = all_activities.count()
+    if stats.total_activities_assigned > 0:
+        stats.overall_completion_rate = round(
+            (stats.total_activities_completed / stats.total_activities_assigned) * 100.0,
+            2,
+        )
     else:
-        stats.average_session_length = 0
-    
-    # Calculate calories burned
-    calories_sum = completed_activities.aggregate(
-        total=Sum('calories_burned')
-    )['total'] or 0
-    stats.total_calories_burned = calories_sum
-    
-    # Calculate average motivation
-    motivation_avg = completed_activities.exclude(
-        motivation_level__isnull=True
-    ).aggregate(
-        avg=Avg('motivation_level')
-    )['avg'] or 0
-    stats.average_motivation = round(motivation_avg, 2)
-    
-    # Calculate average performance rating
-    rating_avg = completed_activities.exclude(
-        performance_rating__isnull=True
-    ).aggregate(
-        avg=Avg('performance_rating')
-    )['avg'] or 0
-    stats.average_performance_rating = round(rating_avg, 2)
-    
-    # Calculate current streak
-    stats.current_streak = _calculate_streak(user)
-    
-    # Calculate longest streak
-    longest_streak = _calculate_longest_streak(user)
-    if longest_streak > stats.longest_streak:
-        stats.longest_streak = longest_streak
-    
-    # Last activity date
-    last_activity = completed_activities.order_by('-completed_at').first()
+        stats.overall_completion_rate = 0.0
+
+    # Weekly and monthly rolling windows
+    now = timezone.now()
+    week_ago = now - timedelta(days=7)
+    month_ago = now - timedelta(days=30)
+
+    week_activities = completed_activities.filter(completion_date__gte=week_ago)
+    month_activities = completed_activities.filter(completion_date__gte=month_ago)
+
+    stats.activities_this_week = week_activities.count()
+    stats.minutes_this_week = week_activities.aggregate(total=Sum('duration_minutes'))['total'] or 0
+    stats.activities_this_month = month_activities.count()
+    stats.minutes_this_month = month_activities.aggregate(total=Sum('duration_minutes'))['total'] or 0
+
+    # Streak metrics
+    stats.current_streak_days = _calculate_streak(user)
+    stats.longest_streak_days = _calculate_longest_streak(user)
+
+    # Last completed activity date
+    last_activity = completed_activities.order_by('-completion_date').first()
     if last_activity:
-        stats.last_activity_date = last_activity.completed_at
-    
-    # Consistency rate (% of days with activity in last 30 days)
-    thirty_days_ago = timezone.now() - timedelta(days=30)
-    days_with_activity = completed_activities.filter(
-        completed_at__gte=thirty_days_ago
-    ).dates('completed_at', 'day').count()
-    stats.consistency_rate = round((days_with_activity / 30) * 100, 2)
-    
-    # Update timestamp
-    stats.last_updated = timezone.now()
-    
+        stats.last_activity_date = last_activity.completion_date.date() if last_activity.completion_date else None
+
     stats.save()
 
 
@@ -137,34 +136,31 @@ def _calculate_streak(user):
     """
     from django.utils import timezone
     from datetime import timedelta
-    
-    activities = Activity.objects.filter(
-        user=user,
-        completed=True
-    ).order_by('-completed_at')
-    
-    if not activities.exists():
-        return 0
-    
-    streak = 0
-    current_date = timezone.now().date()
-    
-    # Get unique dates with activities
+
     activity_dates = set(
-        activities.values_list('completed_at__date', flat=True)
+        Activity.objects.filter(
+            user=user,
+            completed=True,
+            completion_date__isnull=False,
+        ).values_list('completion_date__date', flat=True)
     )
-    
-    # Check consecutive days from today backwards
-    while current_date in activity_dates or (streak == 0 and current_date == timezone.now().date()):
-        if current_date in activity_dates:
-            streak += 1
+
+    if not activity_dates:
+        return 0
+
+    today = timezone.now().date()
+    yesterday = today - timedelta(days=1)
+    start_date = today if today in activity_dates else (yesterday if yesterday in activity_dates else None)
+
+    if start_date is None:
+        return 0
+
+    streak = 0
+    current_date = start_date
+    while current_date in activity_dates:
+        streak += 1
         current_date -= timedelta(days=1)
-        
-        # If we're checking today and there's no activity yet, don't break streak
-        if current_date == timezone.now().date() - timedelta(days=1) and streak == 0:
-            current_date -= timedelta(days=1)
-            continue
-    
+
     return streak
 
 
@@ -172,28 +168,20 @@ def _calculate_longest_streak(user):
     """
     Calculate the longest consecutive days streak ever achieved.
     """
-    from django.utils import timezone
-    from datetime import timedelta
-    
-    activities = Activity.objects.filter(
-        user=user,
-        completed=True
-    ).order_by('completed_at')
-    
-    if not activities.exists():
-        return 0
-    
-    # Get unique dates with activities
     activity_dates = sorted(set(
-        activities.values_list('completed_at__date', flat=True)
+        Activity.objects.filter(
+        user=user,
+            completed=True,
+            completion_date__isnull=False,
+        ).values_list('completion_date__date', flat=True)
     ))
-    
+
     if not activity_dates:
         return 0
-    
+
     max_streak = 1
     current_streak = 1
-    
+
     for i in range(1, len(activity_dates)):
         # Check if dates are consecutive
         if (activity_dates[i] - activity_dates[i-1]).days == 1:
@@ -201,5 +189,5 @@ def _calculate_longest_streak(user):
             max_streak = max(max_streak, current_streak)
         else:
             current_streak = 1
-    
+
     return max_streak
