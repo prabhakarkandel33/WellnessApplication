@@ -28,6 +28,15 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['10.0.2.2', 'localhost', '127.0.0.1', 'app.sangam1313.com.np']
 
+# Required for HTTPS origins behind Cloudflare tunnels / reverse proxies.
+CSRF_TRUSTED_ORIGINS = [
+    'https://app.sangam1313.com.np',
+]
+
+CORS_ALLOWED_ORIGINS = [
+    'https://app.sangam1313.com.np',
+]
+
 
 
 # Application definition

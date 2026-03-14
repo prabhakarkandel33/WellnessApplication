@@ -70,7 +70,26 @@ _ENTRY_CBT_DESCRIPTION = """
 | `situation` | 1 – Situation | Brief description of the triggering event |
 | `automatic_thought` | 2 – Automatic Thought | Raw thought, word-for-word |
 | `emotion_intensity_before` | 3 – Emotion Intensity | Integer 0–100 before reframing |
-| `cognitive_distortions` | 4 – Distortions | JSON array of distortion keys (see `/api/journal/cbt-guide/`) |
+| `cognitive_distortions` | 4 – Distortions | Array of distortion keys — **must be one or more of the exact values below** |
+
+**Valid `cognitive_distortions` keys** (send as a JSON array of strings, or `[]` to clear):
+
+| Key | Label |
+|---|---|
+| `all_or_nothing` | All-or-Nothing Thinking |
+| `catastrophizing` | Catastrophizing |
+| `disqualifying_positive` | Disqualifying the Positive |
+| `emotional_reasoning` | Emotional Reasoning |
+| `fortune_telling` | Fortune Telling |
+| `jumping_to_conclusions` | Jumping to Conclusions |
+| `labeling` | Labeling |
+| `mental_filter` | Mental Filter |
+| `mind_reading` | Mind Reading |
+| `overgeneralization` | Overgeneralization |
+| `personalization` | Personalization |
+| `should_statements` | "Should" Statements |
+
+Example: `"cognitive_distortions": ["catastrophizing", "mind_reading"]`
 | `evidence_for` | 5a – Evidence For | Facts supporting the thought |
 | `evidence_against` | 5b – Evidence Against | Facts challenging the thought |
 | `balanced_thought` | 6 – Balanced Thought | Reframed, realistic alternative |
