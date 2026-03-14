@@ -51,6 +51,13 @@ class ActivityExpansionTests(SimpleTestCase):
 		self.assertEqual(rest_unit["duration_seconds"], 60)
 		self.assertGreaterEqual(pushups_unit["duration_seconds"], 20)
 
+		# Verify circuit ordering is round-based: all movements in round 1 before round 2.
+		self.assertIn("Push-ups (Round 1)", units[0]["activity_name"])
+		self.assertIn("Bodyweight squats (Round 1)", units[1]["activity_name"])
+		self.assertIn("Plank (Round 1)", units[2]["activity_name"])
+		self.assertIn("Rest (Round 1)", units[3]["activity_name"])
+		self.assertIn("Push-ups (Round 2)", units[4]["activity_name"])
+
 	def test_non_split_activity_falls_back_to_single_row(self):
 		item = {
 			"name": "Brisk Walking: 20 Minutes",
@@ -137,6 +144,41 @@ class ActivityCompletionEndpointTests(APITestCase):
 		self.assertTrue(self.activity.completed)
 		self.assertIsNone(self.activity.motivation_after)
 		self.assertEqual(response.data.get("motivation"), None)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class RecommendationPrivacyEndpointTests(APITestCase):
+	def setUp(self):
+		user_model = get_user_model()
+		self.user = user_model.objects.create_user(
+			username="recommendation-privacy-user",
+			email="recommendation-privacy@example.com",
+			password="testpass123",
+		)
+
+		mock_agent = MagicMock()
+		mock_agent.select_action.return_value = 5
+		mock_agent.adjust_activity_difficulty.side_effect = lambda activity, *_: activity
+		RecommendedActivitiesView.rl_agent = mock_agent
+
+		self.client.force_authenticate(user=self.user)
+
+	def test_recommendation_response_hides_rl_policy_fields(self):
+		response = self.client.get("/api/workout/activity/recommended/")
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK, getattr(response, "data", None))
+		self.assertIn("recommendation_note", response.data)
+		self.assertNotIn("rl_action", response.data)
+		self.assertNotIn("rl_action_name", response.data)
+		self.assertNotIn("reason", response.data)
+
+		self.assertNotIn("rl_action_id", response.data["physical_program"])
+		self.assertNotIn("rl_action_id", response.data["mental_program"])
+
+		for activity in response.data["physical_program"].get("activities", []):
+			self.assertNotIn("rl_action_id", activity)
+		for activity in response.data["mental_program"].get("activities", []):
+			self.assertNotIn("rl_action_id", activity)
 
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])

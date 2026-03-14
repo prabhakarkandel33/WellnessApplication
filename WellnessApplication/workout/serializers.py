@@ -14,7 +14,7 @@ class ActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Activity
         fields = [
-            'activity_id', 'id', 'program_id', 'program', 'activity_name', 'activity_type', 'rl_action_id',
+            'activity_id', 'id', 'program_id', 'program', 'activity_name', 'activity_type',
             'description', 'duration_minutes', 'intensity', 'instructions',
             'duration_seconds',
             'assigned_date', 'completed', 'completion_date',
@@ -59,7 +59,7 @@ class ProgramSerializer(serializers.ModelSerializer):
         fields = [
             'program_id', 'id', 'program_type', 'name', 'description',
             'duration', 'frequency', 'intensity', 'progression', 'focus',
-            'rl_action_id', 'completed', 'completion_date',
+            'completed', 'completion_date',
             'total_activities', 'completed_activities', 'completion_rate',
             'created_at', 'activities'
         ]
@@ -82,9 +82,7 @@ class ProgramSerializer(serializers.ModelSerializer):
 class RecommendedProgramsResponseSerializer(serializers.Serializer):
     """Response for GET /workout/activity/recommended/ with persisted programs."""
     status = serializers.CharField(help_text="Success status")
-    rl_action = serializers.IntegerField(help_text="RL action ID selected (0-5)")
-    rl_action_name = serializers.CharField(help_text="Human-readable action name")
-    reason = serializers.CharField(help_text="Explanation of why these activities were chosen")
+    recommendation_note = serializers.CharField(help_text="Generic recommendation summary")
     physical_program = ProgramSerializer(help_text="Persisted physical program")
     mental_program = ProgramSerializer(help_text="Persisted mental program")
     total_activities = serializers.IntegerField(help_text="Number of created activities")
@@ -131,10 +129,7 @@ class RecommendedActivitySerializer(serializers.Serializer):
 class RecommendedActivitiesResponseSerializer(serializers.Serializer):
     """Response for GET /workout/activity/recommended/"""
     status = serializers.CharField(help_text="Success status")
-    user_segment = serializers.CharField(help_text="User's wellness segment")
-    rl_action = serializers.IntegerField(help_text="RL action ID selected (0-5)")
-    rl_action_name = serializers.CharField(help_text="Human-readable action name")
-    reason = serializers.CharField(help_text="Explanation of why these activities were chosen")
+    recommendation_note = serializers.CharField(help_text="Generic recommendation summary")
     recommended_activities = RecommendedActivitySerializer(many=True)
     total_activities = serializers.IntegerField(help_text="Number of activities recommended")
     user_engagement = serializers.FloatField(help_text="Current user engagement score (0-1)")

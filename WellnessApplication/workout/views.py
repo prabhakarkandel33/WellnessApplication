@@ -444,7 +444,7 @@ class RecommendProgram(APIView):
         - Program IDs
         - Activity IDs
         - Exact timers (`duration_minutes` and `duration_seconds`)
-        - RL action metadata used for training
+        - Neutral recommendation metadata (policy hidden from client)
         """,
         responses={
             200: RecommendedProgramsResponseSerializer,
@@ -455,11 +455,7 @@ class RecommendProgram(APIView):
                 'Successful Program Response',
                 value={
                     "status": "success",
-                    "user_segment": "Working Professional Sedentary Stable",
-                    "activity_segment": "Moderate Anxiety, Moderate Activity",
-                    "rl_action": 3,
-                    "rl_action_name": "Send Motivational Message (SMM)",
-                    "reason": "Time for a balanced routine combining physical and mental wellness",
+                    "recommendation_note": "Personalized plan generated from your recent progress.",
                     "physical_program": {
                         "id": 24,
                         "program_type": "physical",
@@ -467,7 +463,7 @@ class RecommendProgram(APIView):
                         "activities": [
                             {
                                 "id": 123,
-                                "activity_name": "Brisk Walking: 20 Minutes",
+                                "activity_name": "Brisk Walking",
                                 "duration_minutes": 20,
                                 "duration_seconds": 1200,
                                 "completed": False
@@ -481,7 +477,7 @@ class RecommendProgram(APIView):
                         "activities": [
                             {
                                 "id": 124,
-                                "activity_name": "Mindfulness Meditation: 10 Minutes",
+                                "activity_name": "Mindfulness Meditation",
                                 "duration_minutes": 10,
                                 "duration_seconds": 600,
                                 "completed": False
@@ -849,25 +845,16 @@ class RecommendedActivitiesView(APIView):
         
         **How it works:**
         1. System identifies your wellness segment (based on anxiety/activity levels)
-        2. RL agent selects optimal action (0-5) based on your engagement history
+        2. RL agent selects optimal action internally based on your engagement history
         3. Activities are chosen and duration/difficulty adjusted dynamically
         4. Two persisted programs are created: one physical and one mental
         5. Timed instruction steps are split into standalone activities when possible
         6. Every activity is saved with an ID and linked to its parent program
         
-        **RL Actions:**
-        - **0 - Increase Workout Intensity**: More challenging physical activities
-        - **1 - Decrease Workout Intensity**: Lighter, easier activities
-        - **2 - Increase Meditation**: More mental wellness focus
-        - **3 - Motivational Balance**: Mix of physical & mental
-        - **4 - Increase Mental Focus**: More reflection and mindfulness activities
-        - **5 - Maintain Current**: Keep current difficulty level
-        
         **Activity Fields:**
         - `duration_seconds`: Explicit timer value for each activity unit
         - `duration_minutes`: Rounded-up minute equivalent for display compatibility
         - `intensity`: low, moderate, or high
-        - `rl_action_id`: Which RL action generated this (0-5)
         - `instructions`: Step-by-step guidance
         - `id`: Persisted ID for completion tracking
         - `program`: Parent program relationship
@@ -887,11 +874,7 @@ class RecommendedActivitiesView(APIView):
                 'Success Response',
                 value={
                     "status": "success",
-                    "user_segment": "Working Professional Sedentary Stable",
-                    "activity_segment": "Moderate Anxiety, Moderate Activity",
-                    "rl_action": 3,
-                    "rl_action_name": "Send Motivational Message (SMM)",
-                    "reason": "Time for a balanced routine combining physical and mental wellness",
+                    "recommendation_note": "Personalized plan generated from your recent progress.",
                     "physical_program": {
                         "id": 24,
                         "program_type": "physical",
@@ -899,7 +882,7 @@ class RecommendedActivitiesView(APIView):
                         "activities": [
                             {
                                 "id": 123,
-                                "activity_name": "Brisk Walking: 20 Minutes",
+                                "activity_name": "Brisk Walking",
                                 "activity_type": "exercise"
                             }
                         ]
@@ -911,7 +894,7 @@ class RecommendedActivitiesView(APIView):
                         "activities": [
                             {
                                 "id": 124,
-                                "activity_name": "Mindfulness Meditation: 10 Minutes",
+                                "activity_name": "Mindfulness Meditation",
                                 "activity_type": "meditation"
                             }
                         ]
@@ -937,7 +920,6 @@ class RecommendedActivitiesView(APIView):
             # Get RL agent's recommended action
             user_state = self._build_user_state(user, segment_id)
             action = RecommendedActivitiesView.rl_agent.select_action(user_state)
-            action_name = RecommendedActivitiesView.rl_agent.get_action_name(action)
 
             # Keep last action in sync for subsequent RL training endpoints.
             user.last_action_recommended = int(action)
@@ -1032,9 +1014,7 @@ class RecommendedActivitiesView(APIView):
             
             return Response({
                 "status": "success",
-                "rl_action": action,
-                "rl_action_name": action_name,
-                "reason": self._get_action_reason(action),
+                "recommendation_note": "Personalized plan generated from your recent progress.",
                 "physical_program": ProgramSerializer(physical_program).data,
                 "mental_program": ProgramSerializer(mental_program).data,
                 "total_activities": len(created_physical) + len(created_mental),
@@ -1267,23 +1247,66 @@ class RecommendedActivitiesView(APIView):
         """Extract timed or repetition-based instruction lines into standalone units."""
         timed_units = []
         repeat_count = 1
+        repeat_step_templates = []
+
+        def emit_step(step_name, description, seconds, round_number=None, rounds_total=None):
+            duration_seconds = max(1, int(seconds))
+            line_description = description
+            if round_number is not None and rounds_total is not None:
+                line_description = f"{description} (Round {round_number} of {rounds_total})"
+
+            timed_units.append({
+                'activity_name': self._build_step_name(parent_name, step_name, round_number=round_number),
+                'description': line_description,
+                'duration_seconds': duration_seconds,
+                'instructions': [line_description],
+            })
+
+        def flush_repeat_templates(reset_repeat=True):
+            nonlocal repeat_step_templates, repeat_count
+
+            if repeat_step_templates:
+                rounds = repeat_count if repeat_count > 1 else 1
+                if rounds > 1:
+                    for round_number in range(1, rounds + 1):
+                        for template in repeat_step_templates:
+                            emit_step(
+                                template['step_name'],
+                                template['description'],
+                                template['seconds'],
+                                round_number=round_number,
+                                rounds_total=rounds,
+                            )
+                else:
+                    for template in repeat_step_templates:
+                        emit_step(
+                            template['step_name'],
+                            template['description'],
+                            template['seconds'],
+                        )
+
+                repeat_step_templates = []
+
+            if reset_repeat:
+                repeat_count = 1
 
         def append_step(step_name, description, seconds, force_single=False):
-            rounds = 1 if force_single else (repeat_count if repeat_count > 1 else 1)
-            duration_seconds = max(1, int(seconds))
+            nonlocal repeat_step_templates
 
-            for idx in range(rounds):
-                round_number = idx + 1 if rounds > 1 else None
-                line_description = description
-                if round_number is not None:
-                    line_description = f"{description} (Round {round_number} of {rounds})"
+            if force_single:
+                flush_repeat_templates()
+                emit_step(step_name, description, seconds)
+                return
 
-                timed_units.append({
-                    'activity_name': self._build_step_name(parent_name, step_name, round_number=round_number),
-                    'description': line_description,
-                    'duration_seconds': duration_seconds,
-                    'instructions': [line_description],
+            if repeat_count > 1:
+                repeat_step_templates.append({
+                    'step_name': step_name,
+                    'description': description,
+                    'seconds': max(1, int(seconds)),
                 })
+                return
+
+            emit_step(step_name, description, seconds)
 
         timed_step_pattern = re.compile(
             r'^(?:[-*]\s*)?(?:\d+[\.)]\s*)?(?P<value>\d+)\s*'
@@ -1325,11 +1348,12 @@ class RecommendedActivitiesView(APIView):
 
             repeat_match = repeat_pattern.search(line)
             if repeat_match:
+                flush_repeat_templates(reset_repeat=False)
                 repeat_count = max(1, int(repeat_match.group('count')))
                 continue
 
             if line.lower().startswith(('tips:', 'safety:', 'benefits:', 'goal:')):
-                repeat_count = 1
+                flush_repeat_templates()
                 continue
 
             labeled_match = labeled_duration_pattern.match(line)
@@ -1341,7 +1365,6 @@ class RecommendedActivitiesView(APIView):
                     labeled_match.group('unit'),
                 )
                 append_step(label, details or label, seconds, force_single=True)
-                repeat_count = 1
                 continue
 
             timed_match = timed_step_pattern.match(line)
@@ -1404,8 +1427,9 @@ class RecommendedActivitiesView(APIView):
 
             line_lower = line.lower()
             if 'cool-down' in line_lower or 'cool down' in line_lower or line_lower.startswith('total:'):
-                repeat_count = 1
+                flush_repeat_templates()
 
+        flush_repeat_templates()
         return timed_units
 
     def _expand_catalog_activity(self, item):
