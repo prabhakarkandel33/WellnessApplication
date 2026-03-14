@@ -55,6 +55,14 @@ def _compute_streaks(entry_dates):
 
 
 _ENTRY_CBT_DESCRIPTION = """
+**Mood scale**
+
+- `1` = Very Low
+- `2` = Low
+- `3` = Neutral
+- `4` = Good
+- `5` = Great
+
 **CBT Thought-Record fields** (all optional — omit them for a plain free-form entry):
 
 | Field | CBT Step | Notes |
