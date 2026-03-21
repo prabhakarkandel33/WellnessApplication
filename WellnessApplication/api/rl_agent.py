@@ -6,6 +6,7 @@ Based on the project proposal methodology
 import numpy as np
 import json
 import os
+import re
 from collections import defaultdict
 
 
@@ -42,7 +43,7 @@ class WellnessRLAgent:
             1: "Decrease Workout Intensity (DWI)", 
             2: "Increase Meditation Frequency (IMF)",
             3: "Send Motivational Message (SMM)",
-            4: "Introduce Journaling Feature (IJF)",
+            4: "Increase Mental Recovery Focus (IMRF)",
             5: "Maintain Current Plan (MCP)"
         }
         
@@ -245,7 +246,82 @@ class WellnessRLAgent:
             state_tuple = eval(state_str)
             self.q_table[state_tuple] = defaultdict(float, actions)
 
-    def adjust_activity_difficulty(self, activity, engagement_contribution, recent_completions):
+    def _adjust_exercise_instruction_line(self, line, direction):
+        """Adjust reps/sets hints on a single instruction line for intensity changes."""
+        if direction == 0:
+            return line
+
+        updated = str(line)
+
+        # 8-10 reps -> 10-12 reps (increase) or 6-8 reps (decrease)
+        def repl_rep_range(match):
+            low = int(match.group('low'))
+            high = int(match.group('high'))
+            step = 2 if direction > 0 else -2
+            new_low = max(2, low + step)
+            new_high = max(new_low, high + step)
+            suffix = match.group('suffix')
+            return f"{new_low}-{new_high} {suffix}"
+
+        updated = re.sub(
+            r'(?P<low>\d+)\s*-\s*(?P<high>\d+)\s*(?P<suffix>repetitions?|reps?)\b',
+            repl_rep_range,
+            updated,
+            flags=re.IGNORECASE,
+        )
+
+        # 15 reps -> 17 reps (increase) or 13 reps (decrease)
+        def repl_single_reps(match):
+            value = int(match.group('value'))
+            step = 2 if direction > 0 else -2
+            new_value = max(2, value + step)
+            suffix = match.group('suffix')
+            return f"{new_value} {suffix}"
+
+        updated = re.sub(
+            r'(?P<value>\d+)\s*(?P<suffix>repetitions?|reps?)\b',
+            repl_single_reps,
+            updated,
+            flags=re.IGNORECASE,
+        )
+
+        # Repeat 3 times -> Repeat 4 times (increase) or Repeat 2 times (decrease)
+        def repl_repeat_times(match):
+            value = int(match.group('value'))
+            step = 1 if direction > 0 else -1
+            new_value = max(1, min(6, value + step))
+            return f"Repeat {new_value} times"
+
+        updated = re.sub(
+            r'Repeat\s+(?P<value>\d+)\s+times',
+            repl_repeat_times,
+            updated,
+            flags=re.IGNORECASE,
+        )
+
+        # 12 reps x 3 sets -> 12 reps x 4 sets (increase) or 12 reps x 2 sets (decrease)
+        def repl_x_sets(match):
+            value = int(match.group('value'))
+            step = 1 if direction > 0 else -1
+            new_value = max(1, min(6, value + step))
+            return f"x {new_value} sets"
+
+        updated = re.sub(
+            r'x\s*(?P<value>\d+)\s*sets?\b',
+            repl_x_sets,
+            updated,
+            flags=re.IGNORECASE,
+        )
+
+        return updated
+
+    def _scale_exercise_instructions(self, instructions, direction):
+        """Apply instruction-level scaling so rep/set guidance reflects chosen RL action."""
+        if not isinstance(instructions, list):
+            return instructions
+        return [self._adjust_exercise_instruction_line(line, direction) for line in instructions]
+
+    def adjust_activity_difficulty(self, activity, engagement_contribution, recent_completions, action_id=None):
         """
         Dynamically adjust activity duration/reps based on user engagement
         
@@ -258,6 +334,8 @@ class WellnessRLAgent:
             dict: adjusted activity with modified duration/instructions
         """
         adjusted = activity.copy()
+        activity_type = str(adjusted.get('type', '')).lower()
+        original_duration = max(1, int(activity.get('duration', 10)))
         
         # Calculate trend from recent engagement
         if recent_completions:
@@ -265,22 +343,35 @@ class WellnessRLAgent:
         else:
             avg_engagement = engagement_contribution
         
-        # Adjust duration based on engagement
-        if avg_engagement > 0.7:
-            # User doing well - increase difficulty
-            adjusted['duration'] = int(activity.get('duration', 10) * 1.15)
-            adjusted['intensity_adjustment'] = "Increased"
-            adjusted['reps_adjustment'] = "Add 2-3 more reps per set"
+        # Prefer explicit RL action when present, then fall back to engagement-only tuning.
+        direction = 0
+        if action_id == 0:
+            direction = 1
+        elif action_id == 1:
+            direction = -1
+        elif avg_engagement > 0.7:
+            direction = 1
         elif avg_engagement < 0.3:
-            # User struggling - decrease difficulty
-            adjusted['duration'] = max(int(activity.get('duration', 10) * 0.85), 5)
+            direction = -1
+
+        if direction > 0:
+            adjusted['duration'] = max(original_duration + 1, int(round(original_duration * 1.2)))
+            adjusted['intensity_adjustment'] = "Increased"
+            adjusted['reps_adjustment'] = "Increase reps/sets dynamically"
+        elif direction < 0:
+            adjusted['duration'] = max(3, int(round(original_duration * 0.8)))
             adjusted['intensity_adjustment'] = "Decreased"
-            adjusted['reps_adjustment'] = "Reduce by 2-3 reps per set"
+            adjusted['reps_adjustment'] = "Reduce reps/sets dynamically"
         else:
-            # User doing moderate - maintain
-            adjusted['duration'] = activity.get('duration', 10)
+            adjusted['duration'] = original_duration
             adjusted['intensity_adjustment'] = "Maintained"
             adjusted['reps_adjustment'] = "Keep current reps"
+
+        if activity_type == 'exercise' and isinstance(adjusted.get('instructions'), list):
+            adjusted['instructions'] = self._scale_exercise_instructions(
+                adjusted['instructions'],
+                direction,
+            )
         
         return adjusted
 

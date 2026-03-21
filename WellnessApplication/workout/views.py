@@ -356,7 +356,7 @@ class RecommendProgram(APIView):
             1: "Decrease Workout Intensity (DWI)",
             2: "Increase Meditation Frequency (IMF)",
             3: "Send Motivational Message (SMM)",
-            4: "Introduce Journaling Feature (IJF)",
+            4: "Increase Mental Recovery Focus (IMRF)",
             5: "Maintain Current Plan (MCP)"
         }
         
@@ -384,11 +384,10 @@ class RecommendProgram(APIView):
                 adapted["reminders"].append("Daily motivational check-in")
                 adapted["adaptation_reason"] = "RL: Adding motivational support to boost engagement"
                 
-        elif action_id == 4:  # Introduce Journaling Feature
+        elif action_id == 4:  # Increase Mental Recovery Focus
             if "mental_program" in adapted:
-                if "activities" in adapted["mental_program"]:
-                    adapted["mental_program"]["activities"].append("Structured journaling for reflection")
-                adapted["adaptation_reason"] = "RL: Adding journaling to improve self-awareness"
+                adapted["mental_program"]["focus"] = "Extra recovery and stress regulation"
+                adapted["adaptation_reason"] = "RL: Increasing mental recovery emphasis"
                 
         else:  # Maintain Current Plan (action_id == 5)
             adapted["adaptation_reason"] = "RL: Current plan working well, maintaining current strategy"
@@ -934,10 +933,6 @@ class RecommendedActivitiesView(APIView):
                 item for item in all_mental_activities
                 if str(item.get("type", "")).lower() != 'journaling'
             ]
-            # If a segment has too few meditation items, include journaling templates
-            # so we can still build multi-activity sessions.
-            if len(mental_activities) < 2 and all_mental_activities:
-                mental_activities = list(all_mental_activities)
             
             # Select activities based on RL action
             selected_activities = self._select_activities_by_action(
@@ -952,9 +947,16 @@ class RecommendedActivitiesView(APIView):
             for activity in selected_activities:
                 adjusted = RecommendedActivitiesView.rl_agent.adjust_activity_difficulty(
                     activity, recent_completions.get('avg_engagement', 0.5), 
-                    recent_completions.get('engagement_history', [])
+                    recent_completions.get('engagement_history', []),
+                    action,
                 )
                 adjusted_activities.append(adjusted)
+
+            adjusted_activities = self._apply_action_volume_strategy(
+                action,
+                adjusted_activities,
+                recent_completions,
+            )
 
             # Ensure both program groups exist with at least one activity when possible.
             physical_selected = [
@@ -1093,7 +1095,7 @@ class RecommendedActivitiesView(APIView):
             2: {'physical': 1, 'mental': 3},
             # Send Motivational Message (balanced)
             3: {'physical': 2, 'mental': 2},
-            # Increase Mental Focus
+            # Increase Mental Recovery Focus
             4: {'physical': 1, 'mental': 3},
             # Maintain Current Plan
             5: {'physical': 2, 'mental': 2},
@@ -1126,6 +1128,72 @@ class RecommendedActivitiesView(APIView):
         if len(catalog) <= count:
             return list(catalog)
         return random.sample(catalog, count)
+
+    def _shift_intensity(self, current_intensity, step):
+        levels = ['Low', 'Moderate', 'High']
+        current = self._normalize_intensity(current_intensity)
+        idx = levels.index(current)
+        new_idx = max(0, min(len(levels) - 1, idx + step))
+        return levels[new_idx]
+
+    def _apply_action_volume_strategy(self, action, activities, engagement_info):
+        """Apply action-specific dynamic changes to exercise volume.
+
+        - Action 0 may add a bonus exercise set and increase intensity.
+        - Action 1 may reduce intensity and remove one exercise if adherence is low.
+        """
+        if not activities:
+            return activities
+
+        avg_engagement = safe_float_or_default(
+            engagement_info.get('avg_engagement', 0.5),
+            0.5,
+            min_value=0.0,
+            max_value=1.0,
+        )
+
+        updated = []
+        for item in activities:
+            cloned = dict(item)
+            item_type = self._normalize_activity_type(cloned.get('type'))
+            if item_type == 'exercise':
+                if int(action) == 0:
+                    cloned['intensity'] = self._shift_intensity(cloned.get('intensity'), 1)
+                elif int(action) == 1:
+                    cloned['intensity'] = self._shift_intensity(cloned.get('intensity'), -1)
+            updated.append(cloned)
+
+        # Lower-intensity action can drop one exercise entirely for struggling users.
+        if int(action) == 1 and avg_engagement < 0.55:
+            exercise_indices = [
+                idx for idx, item in enumerate(updated)
+                if self._normalize_activity_type(item.get('type')) == 'exercise'
+            ]
+            if len(exercise_indices) > 1:
+                drop_idx = max(
+                    exercise_indices,
+                    key=lambda idx: self._safe_duration_minutes(updated[idx].get('duration')),
+                )
+                updated.pop(drop_idx)
+
+        # Higher-intensity action can add one extra short exercise set.
+        if int(action) == 0 and avg_engagement > 0.65:
+            exercise_candidates = [
+                item for item in updated
+                if self._normalize_activity_type(item.get('type')) == 'exercise'
+            ]
+            if exercise_candidates:
+                base = min(
+                    exercise_candidates,
+                    key=lambda item: self._safe_duration_minutes(item.get('duration')),
+                )
+                bonus = dict(base)
+                bonus['name'] = f"{base.get('name', 'Exercise')} - Bonus Set"
+                bonus['duration'] = max(3, int(round(self._safe_duration_minutes(base.get('duration')) * 0.7)))
+                bonus['intensity'] = self._shift_intensity(base.get('intensity'), 1)
+                updated.append(bonus)
+
+        return updated
     
     def _get_recent_engagement(self, user):
         """Get recent engagement data for the user"""
@@ -1153,7 +1221,7 @@ class RecommendedActivitiesView(APIView):
             1: "Let's ease up on intensity to prevent burnout",
             2: "Meditation can help with stress management and clarity",
             3: "Time for a balanced routine combining physical and mental wellness",
-            4: "Additional mental wellness focus can improve consistency and recovery",
+            4: "Extra mental recovery focus can improve consistency and reduce stress load",
             5: "Your current routine is working well, let's maintain it"
         }
         return reasons.get(action, "Personalized recommendation based on your profile")
