@@ -11,6 +11,7 @@ services:
                python manage.py migrate --noinput &&
                python manage.py flood_motivational_quotes &&
                python manage.py flood_user_statistics --force &&
+               python manage.py train_rl_offline &&
                python manage.py create_startup_notifications &&
                python manage.py runserver 0.0.0.0:8000"
   chatbot:
