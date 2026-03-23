@@ -3,30 +3,6 @@ from rest_framework import serializers
 from journal.models import JournalEntry, JournalPrompt, JournalReadEvent, JournalTag
 
 
-class JournalEntryFilterSerializer(serializers.Serializer):
-    q = serializers.CharField(required=False, allow_blank=True)
-    mood = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=5,
-        help_text='Filter by mood using the scale: 1=Very Low, 2=Low, 3=Neutral, 4=Good, 5=Great.',
-    )
-    is_favorite = serializers.BooleanField(required=False)
-    is_archived = serializers.BooleanField(required=False)
-    tag = serializers.CharField(required=False, allow_blank=True)
-    start_date = serializers.DateField(required=False)
-    end_date = serializers.DateField(required=False)
-    # CBT filter: pass true to return only entries with a thought record filled in
-    has_thought_record = serializers.BooleanField(required=False)
-
-    def validate(self, attrs):
-        start_date = attrs.get('start_date')
-        end_date = attrs.get('end_date')
-        if start_date and end_date and start_date > end_date:
-            raise serializers.ValidationError('start_date must be before or equal to end_date.')
-        return attrs
-
-
 class JournalTagSerializer(serializers.ModelSerializer):
     class Meta:
         model = JournalTag

@@ -14,7 +14,6 @@ from rest_framework.views import APIView
 from journal.models import JournalEntry, JournalPrompt, JournalReadEvent, JournalTag
 from journal.serializers import (
     CBTGuideSerializer,
-    JournalEntryFilterSerializer,
     JournalEntrySerializer,
     JournalInsightsSerializer,
     JournalPromptSerializer,
@@ -122,21 +121,13 @@ See `GET /api/journal/cbt-guide/` for the full step-by-step guide and valid dist
     list=extend_schema(
         tags=['Journal'],
         summary='List journal entries',
-        description=(
-            'Returns journal entries for the authenticated user with optional filters.\n\n'
-            'Filter `?has_thought_record=true` to return only CBT thought-record entries.\n\n'
-            + _ENTRY_CBT_DESCRIPTION
-        ),
-        parameters=[JournalEntryFilterSerializer],
+        description='Returns all journal entries for the authenticated user.',
         responses={200: JournalEntrySerializer(many=True)},
     ),
     create=extend_schema(
         tags=['Journal'],
         summary='Create journal entry',
-        description=(
-            'Creates a new journal entry for the authenticated user.\n\n'
-            + _ENTRY_CBT_DESCRIPTION
-        ),
+        description='Creates a new journal entry for the authenticated user.',
         request=JournalEntrySerializer,
         responses={201: JournalEntrySerializer},
     ),
@@ -149,11 +140,7 @@ See `GET /api/journal/cbt-guide/` for the full step-by-step guide and valid dist
     partial_update=extend_schema(
         tags=['Journal'],
         summary='Update journal entry',
-        description=(
-            'Partially update a journal entry. You can add or fill in CBT '
-            'thought-record fields at any time after the initial save.\n\n'
-            + _ENTRY_CBT_DESCRIPTION
-        ),
+        description='Partially update a journal entry for the authenticated user.',
         request=JournalEntrySerializer,
         responses={200: JournalEntrySerializer},
     ),
@@ -168,45 +155,7 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
     serializer_class = JournalEntrySerializer
 
     def get_queryset(self):
-        queryset = JournalEntry.objects.filter(user=self.request.user).prefetch_related('tags')
-
-        filter_serializer = JournalEntryFilterSerializer(data=self.request.query_params)
-        filter_serializer.is_valid(raise_exception=True)
-        filters = filter_serializer.validated_data
-
-        query_text = filters.get('q')
-        if query_text:
-            queryset = queryset.filter(Q(title__icontains=query_text) | Q(content__icontains=query_text))
-
-        mood = filters.get('mood')
-        if mood:
-            queryset = queryset.filter(mood=mood)
-
-        if 'is_favorite' in filters:
-            queryset = queryset.filter(is_favorite=filters['is_favorite'])
-
-        if 'is_archived' in filters:
-            queryset = queryset.filter(is_archived=filters['is_archived'])
-
-        tag_name = filters.get('tag')
-        if tag_name:
-            queryset = queryset.filter(tags__name__iexact=tag_name.strip().lower())
-
-        start_date = filters.get('start_date')
-        if start_date:
-            queryset = queryset.filter(entry_date__gte=start_date)
-
-        end_date = filters.get('end_date')
-        if end_date:
-            queryset = queryset.filter(entry_date__lte=end_date)
-
-        if 'has_thought_record' in filters:
-            if filters['has_thought_record']:
-                queryset = queryset.exclude(situation='').exclude(automatic_thought='')
-            else:
-                queryset = queryset.filter(Q(situation='') | Q(automatic_thought=''))
-
-        return queryset.distinct()
+        return JournalEntry.objects.filter(user=self.request.user).prefetch_related('tags').distinct()
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)

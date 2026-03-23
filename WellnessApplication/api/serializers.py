@@ -196,3 +196,36 @@ class StatisticsFilterSerializer(serializers.Serializer):
                     "start_date must be before end_date"
                 )
         return data
+
+
+class SelfProfileSerializer(serializers.ModelSerializer):
+    segment_label_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'username',
+            'first_name',
+            'last_name',
+            'email',
+            'age',
+            'gender',
+            'diet_type',
+            'stress_level',
+            'mental_health_condition',
+            'exercise_level',
+            'sleep_hours',
+            'work_hours_per_week',
+            'screen_time_per_day',
+            'self_reported_social_interaction_score',
+            'happiness_score',
+            'segment_label',
+            'segment_label_display',
+            'date_joined',
+            'last_login',
+        ]
+        read_only_fields = fields
+
+    def get_segment_label_display(self, obj):
+        return obj.get_segment_label_display() if obj.segment_label is not None else None

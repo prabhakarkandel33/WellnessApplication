@@ -1,5 +1,5 @@
 from django.urls import path,include
-from .views import RegisterView, UserStatisticsView
+from .views import RegisterView, SelfProfileView, UserStatisticsView
 from rest_framework_simplejwt.views import TokenObtainPairView,TokenRefreshView
 
 from drf_spectacular.views import (
@@ -17,6 +17,7 @@ urlpatterns = [
     path('signup/',RegisterView.as_view(),name='signup'),
     path('login/',TokenObtainPairView.as_view(),name='login'),
     path('token/refresh/',TokenRefreshView.as_view(),name='token_refresh'),
+    path('profile/', SelfProfileView.as_view(), name='self_profile'),
     path('statistics/', UserStatisticsView.as_view(), name='user_statistics'),
     path('journal/', include('journal.urls')),
     path('workout/',include('workout.urls')),
