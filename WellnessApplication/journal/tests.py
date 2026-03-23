@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from datetime import timedelta
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -63,7 +64,31 @@ class JournalAPITestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
+        self.assertIn('id', response.data[0])
         self.assertEqual(response.data[0]['title'], 'My entry')
+
+    def test_list_entries_returns_all_user_entries(self):
+        today = timezone.localdate()
+        JournalEntry.objects.create(
+            user=self.user,
+            title='Old entry',
+            content='This entry is old and should be excluded by from_date filter.',
+            mood=3,
+            entry_date=today - timedelta(days=10),
+        )
+        JournalEntry.objects.create(
+            user=self.user,
+            title='Recent entry',
+            content='This entry is recent and should be returned by from_date filter.',
+            mood=4,
+            entry_date=today - timedelta(days=1),
+        )
+
+        response = self.client.get(self.entries_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        self.assertTrue(all('id' in item for item in response.data))
 
     def test_user_cannot_retrieve_another_users_entry(self):
         other_entry = JournalEntry.objects.create(

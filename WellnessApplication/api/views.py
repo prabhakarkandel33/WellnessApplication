@@ -3,7 +3,12 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from .serializers import RegisterSerializer, UserStatisticsSerializer, StatisticsFilterSerializer
+from .serializers import (
+    RegisterSerializer,
+    SelfProfileSerializer,
+    StatisticsFilterSerializer,
+    UserStatisticsSerializer,
+)
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.db.models import Count, Avg, Sum, Q
@@ -22,6 +27,19 @@ User = get_user_model()
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
+
+
+@extend_schema(
+    tags=['Profile'],
+    responses={200: SelfProfileSerializer},
+    description='Get authenticated user profile details.',
+)
+class SelfProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = SelfProfileSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 @extend_schema(
